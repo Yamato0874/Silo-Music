@@ -112,6 +112,38 @@ async fn search_tracks(s: State<'_, App>, params: SearchParams) -> R<Vec<Track>>
     db(&s).note_seen(&v).map_err(e)?;
     Ok(v)
 }
+/// Поиск ссылок YouTube и SoundCloud через официальный Google Custom Search JSON API (режим «по ссылке»).
+async fn cse_search(key: &str, cx: &str, q: &str, yt: bool, sc: bool) -> R<Vec<Track>> {
+    let sites = [(yt, "site:youtube.com"), (sc, "site:soundcloud.com")].iter().filter(|x| x.0).map(|x| x.1).collect::<Vec<_>>().join(" OR ");
+    let query = format!("{q} ({sites})");
+    let r = reqwest::Client::new().get("https://www.googleapis.com/customsearch/v1")
+        .query(&[("key", key), ("cx", cx), ("q", query.as_str()), ("num", "10")]).send().await.map_err(e)?;
+    let ok = r.status().is_success();
+    let v: serde_json::Value = r.json().await.map_err(e)?;
+    if !ok { return Err(format!("Google Custom Search: {}", v["error"]["message"].as_str().unwrap_or("ошибка"))); }
+    let mut out = vec![];
+    for it in v["items"].as_array().cloned().unwrap_or_default() {
+        let link = it["link"].as_str().unwrap_or("").to_string();
+        let raw = it["title"].as_str().unwrap_or("").to_string();
+        let img = it["pagemap"]["cse_thumbnail"][0]["src"].as_str().unwrap_or("").to_string();
+        let mut name = raw.trim_end_matches(" - YouTube").split(" | ").next().unwrap_or("").to_string();
+        let (id, source, url, mut artist) = if let Some(vid) = link.split(['?', '&']).find_map(|p| p.strip_prefix("v=")).filter(|_| link.contains("youtube.com/watch")) {
+            (format!("youtube:{vid}"), "youtube", format!("https://www.youtube.com/watch?v={vid}"), String::new())
+        } else if let Some(path) = link.strip_prefix("https://soundcloud.com/").or_else(|| link.strip_prefix("https://m.soundcloud.com/")) {
+            let segs: Vec<&str> = path.split(['?', '#']).next().unwrap_or("").trim_end_matches('/').split('/').collect();
+            let track = segs.len() == 2 && !["sets", "tracks", "albums", "likes", "reposts", "followers", "following", "popular-tracks", "spotlight"].contains(&segs[1]);
+            if !(track || (segs.len() == 3 && segs[1] == "sets")) { continue; }
+            (format!("soundcloud:link:{}", segs.join("/")), "soundcloud", format!("https://soundcloud.com/{}", segs.join("/")), segs[0].to_string())
+        } else { continue };
+        // «Stream Song by Artist» → название и исполнитель
+        if let Some(x) = name.strip_prefix("Stream ") { name = x.to_string(); }
+        if let Some((n, a)) = name.rsplit_once(" by ").map(|(n, a)| (n.to_string(), a.to_string())) { if source == "soundcloud" { name = n; artist = a; } }
+        if source == "youtube" { if let Some((a, n)) = name.split_once(" - ").map(|(a, n)| (a.to_string(), n.to_string())) { artist = a; name = n; } }
+        out.push(Track { id, source: source.into(), kind: "music".into(), url: url.clone(), name, artist, album: String::new(), image: img,
+            audio: String::new(), download_url: String::new(), download_allowed: false, duration: 0, tags: vec![], license_url: url, pop: 0.0 });
+    }
+    Ok(out)
+}
 /// Единый поиск: local, jamendo, youtube, soundcloud. Ошибка одного источника не мешает остальным.
 #[tauri::command]
 async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
@@ -140,6 +172,13 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
             Ok(v) => out.tracks.extend(v),
             Err(x) => out.errors.push(x.to_string()),
         }
+    }
+    // режим «по ссылке» + ключ Google Custom Search: ищем ссылки YouTube/SoundCloud по названию
+    let yt_link = want("youtube") && !api_on(&s, "youtube", &["youtube_api_key"]);
+    let sc_link = want("soundcloud") && !api_on(&s, "soundcloud", &["soundcloud_client_id", "soundcloud_client_secret"]);
+    let (gk, gcx) = (setting(&s, "google_cse_key")?, setting(&s, "google_cse_cx")?);
+    if (yt_link || sc_link) && !q.trim().is_empty() && !gk.trim().is_empty() && !gcx.trim().is_empty() {
+        match cse_search(gk.trim(), gcx.trim(), q.trim(), yt_link, sc_link).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(x) }
     }
     let qq = if q.trim().is_empty() { params.tags.join(" ") } else { q.clone() };
     if params.sources.iter().any(|x| x == "ccmixter") && !qq.trim().is_empty() {

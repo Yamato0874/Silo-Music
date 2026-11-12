@@ -27,6 +27,21 @@ const SERVICES: Svc[] = [
     ],
   },
   {
+    id: "google_cse", name: "Google Custom Search", url: "https://programmablesearchengine.google.com/controlpanel/create",
+    fields: [
+      { key: "google_cse_key", ru: "Custom Search API key", en: "Custom Search API key", secret: true },
+      { key: "google_cse_cx", ru: "ID поисковой системы (cx)", en: "Search engine ID (cx)", secret: false },
+    ],
+    why: [
+      "Для режима «по ссылке»: поиск по названию находит треки на YouTube и SoundCloud без их ключей, и они играют внутри приложения. 100 поисков в день бесплатно.",
+      "For link mode: searching by name finds tracks on YouTube and SoundCloud without their keys, and they play inside the app. 100 searches a day free.",
+    ],
+    steps: [
+      ["Откройте programmablesearchengine.google.com и создайте поисковую систему по сайтам youtube.com и soundcloud.com.", "Скопируйте её ID (cx).", "В console.cloud.google.com включите «Custom Search API» и создайте ключ API."],
+      ["Open programmablesearchengine.google.com and create a search engine for youtube.com and soundcloud.com.", "Copy its ID (cx).", "In console.cloud.google.com enable “Custom Search API” and create an API key."],
+    ],
+  },
+  {
     id: "youtube", name: "YouTube", url: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
     fields: [{ key: "youtube_api_key", ru: "YouTube Data API key", en: "YouTube Data API key", secret: true }],
     why: [
