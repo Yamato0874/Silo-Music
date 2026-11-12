@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "./api";
 import { Prefs } from "./prefs";
 import { Btn } from "./ui";
+import LibBrowser from "./LibBrowser";
 
 type L = Prefs["lang"];
 type Field = { key: string; ru: string; en: string; secret: boolean };
@@ -58,12 +59,7 @@ const SERVICES: Svc[] = [
 export const ALL_KEYS = SERVICES.flatMap((s) => s.fields.map((f) => f.key));
 /** Сервисы с выбором режима: по ссылке (вставка ссылок, без ключей) или через API (поиск по ключам). */
 const MODE_SVC = ["youtube", "soundcloud"];
-/** Открытые каталоги без ключей (Creative Commons). Включены по умолчанию, можно отключить. */
-const CATALOGS: [string, string, [string, string]][] = [
-  ["ccmixter", "ccMixter", ["Ремиксы и инструментал под лицензиями Creative Commons. Без ключа.", "Remixes and instrumentals under Creative Commons licenses. No key."]],
-  ["archive", "Internet Archive", ["Аудиоархив archive.org, только записи с лицензией Creative Commons. Без ключа.", "archive.org audio, only Creative Commons recordings. No key."]],
-];
-const EXTRA = [...MODE_SVC.map((m) => "mode_" + m), ...CATALOGS.map(([c]) => "cat_" + c)];
+const EXTRA = MODE_SVC.map((m) => "mode_" + m);
 
 /** Ключи сервисов: для каждого — зачем, как получить, ссылка и поля. Ключи хранятся только локально в базе приложения. */
 export default function Keys({ lang, onSaved, saveLabel }: { lang: L; onSaved?: () => void; saveLabel?: string }) {
@@ -76,20 +72,11 @@ export default function Keys({ lang, onSaved, saveLabel }: { lang: L; onSaved?: 
   const set = (k: string, x: string) => { setV({ ...v, [k]: x }); setOk(false); };
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    Promise.all([...ALL_KEYS.map((k) => api.setSetting(k, v[k] ?? "")), ...MODE_SVC.map((m) => api.setSetting("mode_" + m, modeOf(m))), ...CATALOGS.map(([c]) => api.setSetting("cat_" + c, v["cat_" + c] === "0" ? "0" : "1"))]).then(() => { setOk(true); setErr(""); onSaved?.(); }).catch((x) => setErr(String(x)));
+    Promise.all([...ALL_KEYS.map((k) => api.setSetting(k, v[k] ?? "")), ...MODE_SVC.map((m) => api.setSetting("mode_" + m, modeOf(m)))]).then(() => { setOk(true); setErr(""); onSaved?.(); }).catch((x) => setErr(String(x)));
   };
   return (
     <form className="keys" onSubmit={submit}>
-      <section className="key-card">
-        <h4>{i ? "Open catalogs" : "Открытые каталоги"}</h4>
-        <p className="muted">{i ? "Free music with open licenses, plays right in the app. Untick what you don't need." : "Свободная музыка с открытыми лицензиями, играет прямо в приложении. Снимите галочку, если не нужно."}</p>
-        {CATALOGS.map(([c, name, d]) => (
-          <label key={c} className="row" style={{ gap: 8, alignItems: "flex-start", margin: "4px 0" }}>
-            <input type="checkbox" style={{ width: "auto" }} checked={v["cat_" + c] !== "0"} onChange={(e) => set("cat_" + c, e.target.checked ? "1" : "0")} />
-            <span><b>{name}</b> <span className="muted">{d[i]}</span></span>
-          </label>
-        ))}
-      </section>
+      <LibBrowser lang={lang} />
       {SERVICES.map((s) => (
         <section key={s.id} className="key-card">
           <h4>{s.name}</h4>

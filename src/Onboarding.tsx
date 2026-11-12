@@ -154,8 +154,8 @@ export default function Onboarding({ prefs, done, startStep = 0 }: { prefs: Pref
               <Btn variant="chip" size="sm" active={lang === "en"} onClick={() => setL("en")}>English</Btn>
             </div>
             <p className="muted">{lang === "en"
-              ? "Open catalogs (ccMixter, Internet Archive) work right away, no keys. YouTube and SoundCloud play by pasted link without keys; for search inside them add a free key. Everything plays inside the app. You can change this later in Settings."
-              : "Открытые каталоги (ccMixter, Internet Archive) работают сразу, без ключей. YouTube и SoundCloud играют по вставленной ссылке без ключей; для поиска внутри них добавьте бесплатный ключ. Вся музыка играет внутри приложения. Позже всё можно изменить в Настройках."}</p>
+              ? "Below you can download free music from open libraries. YouTube and SoundCloud play by pasted link without keys; for search inside them add a free key. Everything plays inside the app. You can change this later in Settings."
+              : "Ниже можно скачать бесплатную музыку из открытых библиотек. YouTube и SoundCloud играют по вставленной ссылке без ключей; для поиска внутри них добавьте бесплатный ключ. Вся музыка играет внутри приложения. Позже всё можно изменить в Настройках."}</p>
             <Keys lang={lang} saveLabel={lang === "en" ? "Save" : "Сохранить"} />
             <div className="onb-foot">
               <Btn onClick={() => setKeysStep(false)}>{t.skip}</Btn>

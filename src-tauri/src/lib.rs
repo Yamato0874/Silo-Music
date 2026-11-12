@@ -26,8 +26,6 @@ fn api_on(s: &State<App>, svc: &str, keys: &[&str]) -> bool {
         _ => keys.iter().all(|k| !setting(s, k).unwrap_or_default().trim().is_empty()),
     }
 }
-/// Открытый каталог включён (выбор на экране первого запуска или в настройках).
-fn cat_on(s: &State<App>, c: &str) -> bool { setting(s, &format!("cat_{c}")).unwrap_or_default() != "0" }
 fn download_dir(s: &State<App>) -> R<PathBuf> {
     let d = setting(s, "download_dir")?;
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
@@ -144,10 +142,10 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
         }
     }
     let qq = if q.trim().is_empty() { params.tags.join(" ") } else { q.clone() };
-    if want("ccmixter") && cat_on(&s, "ccmixter") && !qq.trim().is_empty() {
+    if params.sources.iter().any(|x| x == "ccmixter") && !qq.trim().is_empty() {
         match opencat::ccmixter(&qq, 10).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(format!("ccMixter: {x}")) }
     }
-    if want("archive") && cat_on(&s, "archive") && !qq.trim().is_empty() {
+    if params.sources.iter().any(|x| x == "archive") && !qq.trim().is_empty() {
         match opencat::archive(&qq, 6).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(format!("Internet Archive: {x}")) }
     }
     // строгий язык: по умолчанию включён; отбрасываем треки других языков из всех источников
@@ -408,10 +406,6 @@ async fn echo_mix(
                 Err(x) => out_info.errors.push(format!("SoundCloud: {x}")),
             }
         }
-        // открытые каталоги без ключей: ccMixter по тегу жанра, Internet Archive для первого жанра
-        let ccq = qt.first().cloned().unwrap_or_else(|| tag.clone());
-        if cat_on(&s, "ccmixter") { if let Ok(mut v) = opencat::ccmixter(&ccq, 10).await { for t in &mut v { t.tags.extend(qt.iter().cloned()); } cand.extend(v); } }
-        if pos == Some(0) && cat_on(&s, "archive") { if let Ok(mut v) = opencat::archive(&ccq, 5).await { for t in &mut v { t.tags.extend(qt.iter().cloned()); } cand.extend(v); } }
         let jam = if has_jam { jamendo::search(&id, &p).await } else { Ok(vec![]) };
         // строгий язык: если выбран язык, чужих треков в «Эхо» нет в любом источнике
         let strict_lang = seed_lang.clone().filter(|l| !l.is_empty() && lang_strict != Some(false));
