@@ -83,6 +83,8 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
   useEffect(() => {
     const tr = props.track;
     stopEmbeds();
+    // плеер YouTube держит в памяти видео и отдельный процесс: убираем его, когда играет не YouTube
+    if (tr?.source !== "youtube" && yt.current) { try { yt.current.destroy(); } catch { /* уже уничтожен */ } yt.current = null; if (ytHost.current) ytHost.current.innerHTML = ""; }
     if (!tr) { A().pause(); B().pause(); return; }
     if (isAudio(tr)) {
       if (ids.current[act.current] === tr.id) return; // уже играет (кроссфейд/gapless)

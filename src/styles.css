@@ -105,7 +105,8 @@ footer { grid-column:1/3; display:grid; grid-template-columns:minmax(200px,1fr) 
 /* встроенный плеер YouTube/SoundCloud: панель справа внутри окна приложения, сдвигает содержимое, а не лежит поверх */
 .embed.show { display:flex; flex-direction:column; position:fixed; right:0; top:0; bottom:69px; width:420px; z-index:5; background:var(--panel); border-left:1px solid var(--line); }
 /* панель скрыта, но плеер жив и звучит: уводим за экран, а не display:none */
-.embed.hidden { display:block; position:fixed; left:-1000px; top:0; width:420px; pointer-events:none; opacity:0; }
+/* скрытый плеер маленький: YouTube выбирает низкое качество видео, меньше памяти и процессора */
+.embed.hidden { display:block; position:fixed; left:-1000px; top:0; width:200px; pointer-events:none; opacity:0; }
 .embed-video { position:relative; width:100%; aspect-ratio:16/9; background:#000; flex:none; }
 .embed .yt, .embed iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
 .embed-info { padding:14px 16px; display:flex; flex-direction:column; gap:4px; overflow:auto; }
