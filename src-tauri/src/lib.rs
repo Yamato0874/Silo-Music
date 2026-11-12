@@ -408,6 +408,10 @@ async fn echo_mix(
                 Err(x) => out_info.errors.push(format!("SoundCloud: {x}")),
             }
         }
+        // открытые каталоги без ключей: ccMixter по тегу жанра, Internet Archive для первого жанра
+        let ccq = qt.first().cloned().unwrap_or_else(|| tag.clone());
+        if cat_on(&s, "ccmixter") { if let Ok(mut v) = opencat::ccmixter(&ccq, 10).await { for t in &mut v { t.tags.extend(qt.iter().cloned()); } cand.extend(v); } }
+        if pos == Some(0) && cat_on(&s, "archive") { if let Ok(mut v) = opencat::archive(&ccq, 5).await { for t in &mut v { t.tags.extend(qt.iter().cloned()); } cand.extend(v); } }
         let jam = if has_jam { jamendo::search(&id, &p).await } else { Ok(vec![]) };
         // строгий язык: если выбран язык, чужих треков в «Эхо» нет в любом источнике
         let strict_lang = seed_lang.clone().filter(|l| !l.is_empty() && lang_strict != Some(false));
