@@ -21,13 +21,12 @@ export function Search() {
   const [warn, setWarn] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
   const [seq] = useState({ n: 0 });
-  // поиск при наборе: через 0,7 с бесплатные источники, через 1,5 с все
+  // поиск при наборе: через 0,7 с библиотека и Jamendo; YouTube (100 поисков в день) только по Enter или «Найти»
   useEffect(() => {
     const s = q.trim();
     if (s.length < 3) return;
     const h = setTimeout(() => go(undefined, true), 700);
-    const full = setTimeout(() => go(), 1500); // затем везде, включая YouTube (ответы кэшируются на 30 дней — максимум по правилам YouTube API)
-    return () => { clearTimeout(h); clearTimeout(full); };
+    return () => clearTimeout(h);
   }, [q]);
   const go = (o?: { tags: string[]; lang?: string }, auto = false, my = ++seq.n) =>
     !o &&/^https?:\/\/(www\.|m\.|on\.|music\.)?(soundcloud\.com|youtube\.com|youtu\.be)\//i.test(q.trim())
