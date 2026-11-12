@@ -912,6 +912,14 @@ pub fn run() {
             if std::env::args().any(|a| a == "--tray") { if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); } }
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            // перенос данных: если рядом с программой лежит importsilo.db, он становится базой (старая база сохраняется в backups)
+            if let Some(imp) = std::env::current_exe().ok().and_then(|x| x.parent().map(|d| d.join("import").join("silo.db"))).filter(|x| x.exists()) {
+                let cur = dir.join("silo.db");
+                let _ = std::fs::create_dir_all(dir.join("backups"));
+                if cur.exists() { let _ = std::fs::copy(&cur, dir.join("backups").join("silo-before-import.db")); }
+                for ext in ["-wal", "-shm"] { let _ = std::fs::remove_file(dir.join(format!("silo.db{ext}"))); }
+                if std::fs::copy(&imp, &cur).is_ok() { let _ = std::fs::rename(&imp, imp.with_extension("db.imported")); }
+            }
             let db = Db::open(&dir.join("silo.db")).map_err(|x| x.to_string())?;
             // своя папка с музыкой: разрешаем плееру читать её файлы
             if let Ok(Some(f)) = db.get_setting("music_folder") { if !f.is_empty() { let _ = app.asset_protocol_scope().allow_directory(&f, true); } }
