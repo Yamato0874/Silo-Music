@@ -239,3 +239,5 @@ select.rate { width:auto; padding:2px 4px; font-size:12px; }
 /* мини-плеер */
 .app.mini nav, .app.mini main, .app.mini .queue, .app.mini .embed.show { display:none !important; }
 .app.mini footer { position:fixed; inset:0; height:auto; }
+
+canvas.viz { width:56px; height:56px; border-radius:8px; color:var(--acc, #3ddc97); cursor:pointer; flex:none; }

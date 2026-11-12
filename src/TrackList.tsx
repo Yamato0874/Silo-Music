@@ -19,10 +19,11 @@ export function RateButtons({ tr, size = "sm" }: { tr: Track; size?: "sm" | "md"
 }
 
 /** Строка трека: обложка, название, источник, длительность, оценка и одно меню действий. */
-export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track) => void }) {
+export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track) => void; onMove?: (from: number, to: number) => void }) {
   const { play, enqueue, cur, onError, ratings, radio, openArtist, playlists: pls } = useApp();
   const [f, setF] = useState("");
   const [info, setInfo] = useState<Track | null>(null);
+  const [drag, setDrag] = useState(-1);
   const [limit, setLimit] = useState(100);
   if (!props.tracks.length) return <p className="muted">{t.empty}</p>;
   const err = (x: unknown) => onError(String(x));
@@ -50,7 +51,7 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
         }
         const rated = ratings[tr.id];
         return (
-          <li key={tr.id + i} className={(tr.id === cur?.id ? "active" : "") + (rated ? " rated" : "") + (rated === -2 ? " banned" : "")}>
+          <li key={tr.id + i} draggable={!!props.onMove && !low} onDragStart={() => setDrag(i)} onDragOver={(e) => props.onMove && e.preventDefault()} onDrop={() => { if (props.onMove && drag >= 0 && drag !== i) props.onMove(drag, i); setDrag(-1); }} className={(tr.id === cur?.id ? "active" : "") + (rated ? " rated" : "") + (rated === -2 ? " banned" : "")}>
             <button className="cover" onClick={() => play(props.tracks, i)} aria-label={t.play}>
               {tr.image ? <img src={tr.image} alt="" loading="lazy" decoding="async" /> : <span />}
             </button>

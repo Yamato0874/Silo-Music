@@ -35,6 +35,8 @@ const silent = (() => {
   for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
   const a = new Audio(URL.createObjectURL(new Blob([b], { type: "audio/wav" }))); a.loop = true; a.volume = 0.01; return a;
 })();
+/** Анализатор спектра для визуализатора (есть, пока включена цепочка Web Audio). */
+export let analyser: AnalyserNode | null = null;
 export const holdNext = (id: string, at: number) => { hold = { id, at }; };
 const isAudio = (t?: Track): boolean => !!t && t.source !== "youtube" && t.source !== "soundcloud";
 const srcOf = (t?: Track) => (t!.source === "local" ? convertFileSrc(t!.audio) : t!.audio);
@@ -239,7 +241,8 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
         return b;
       });
       const comp = ctx.createDynamicsCompressor();
-      node.connect(comp); comp.connect(ctx.destination);
+      node.connect(comp);
+      const an = ctx.createAnalyser(); an.fftSize = 128; comp.connect(an); an.connect(ctx.destination); analyser = an;
       fx.current = { ctx, filters, comp };
     }
     const f = fx.current;

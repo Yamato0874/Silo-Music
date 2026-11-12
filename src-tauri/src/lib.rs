@@ -31,7 +31,7 @@ fn download_dir(s: &State<App>) -> R<PathBuf> {
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
 }
 
-const KEYS: [&str; 14] = ["daily", "listenbrainz_token", "prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
+const KEYS: [&str; 15] = ["music_folder", "daily", "listenbrainz_token", "prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
 
 #[tauri::command]
 fn get_setting(s: State<App>, key: String) -> R<String> {
@@ -513,6 +513,51 @@ async fn scrobble(s: State<'_, App>, track: Track) -> R<()> {
     let r = silo_core::http().post("https://api.listenbrainz.org/1/submit-listens").header("Authorization", format!("Token {}", token.trim())).json(&body).send().await.map_err(e)?;
     if r.status().is_success() { Ok(()) } else { Err(format!("ListenBrainz: {}", r.status())) }
 }
+/// Порядок трека в плейлисте (перетаскивание).
+#[tauri::command]
+fn reorder_playlist(s: State<App>, id: i64, from: usize, to: usize) -> R<()> { db(&s).reorder_playlist(id, from, to).map_err(e) }
+/// Своя музыкальная папка: mp3/flac/ogg/m4a/wav с тегами (lofty) попадают в библиотеку («Скачано»), поиск и «Эхо».
+#[tauri::command]
+async fn scan_folder(app: tauri::AppHandle, s: State<'_, App>, path: String) -> R<usize> {
+    let root = PathBuf::from(path.trim());
+    if !root.is_dir() { return Err("папка не найдена".into()); }
+    app.asset_protocol_scope().allow_directory(&root, true).map_err(e)?;
+    db(&s).set_setting("music_folder", &root.to_string_lossy()).map_err(e)?;
+    let files = tauri::async_runtime::spawn_blocking(move || {
+        use lofty::prelude::*;
+        let mut out = vec![];
+        let mut stack = vec![root];
+        while let Some(d) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for en in rd.flatten() {
+                let p = en.path();
+                if p.is_dir() { stack.push(p); continue; }
+                let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+                if !["mp3", "flac", "ogg", "opus", "m4a", "wav", "aac"].contains(&ext.as_str()) { continue; }
+                let stem = p.file_stem().and_then(|x| x.to_str()).unwrap_or("").to_string();
+                let (mut name, mut artist, mut album, mut genre, mut dur) = (stem.clone(), String::new(), String::new(), String::new(), 0u32);
+                if let Some((a, b)) = stem.split_once(" - ") { artist = a.trim().into(); name = b.trim().into(); }
+                if let Ok(tf) = lofty::read_from_path(&p) {
+                    dur = tf.properties().duration().as_secs() as u32;
+                    if let Some(t) = tf.primary_tag().or_else(|| tf.first_tag()) {
+                        if let Some(x) = t.title() { name = x.to_string(); }
+                        if let Some(x) = t.artist() { artist = x.to_string(); }
+                        if let Some(x) = t.album() { album = x.to_string(); }
+                        if let Some(x) = t.genre() { genre = x.to_lowercase(); }
+                    }
+                }
+                let ps = p.to_string_lossy().to_string();
+                out.push(Track { id: format!("local:file:{ps}"), source: "local".into(), kind: "music".into(), url: String::new(), name, artist, album,
+                    image: String::new(), audio: ps, download_url: String::new(), download_allowed: false, duration: dur,
+                    tags: if genre.is_empty() { vec![] } else { vec![genre] }, license_url: String::new(), pop: 0.0 });
+            }
+        }
+        out
+    }).await.map_err(e)?;
+    let d = db(&s);
+    for t in &files { d.save_download(t, &t.audio).map_err(e)?; }
+    Ok(files.len())
+}
 /// Открыть подборку: id вида "youtube:PL…", "soundcloud:123", "jamendo:45".
 #[tauri::command]
 async fn open_playlist(s: State<'_, App>, id: String, lang: Option<String>) -> R<Vec<Track>> {
@@ -667,19 +712,22 @@ async fn echo_mix(
         let text = format!("{} music", qt.first().cloned().unwrap_or_else(|| tag.clone()));
         // YouTube дорогой (100 ед. за поиск): только один жанр за подборку, результаты кэшируются на 3 суток;
         // при исчерпанной квоте тихо пропускаем (сообщение один раз)
-        if pos == Some(0) && has_yt {
-            match yt_genre_tracks(&s, &yt_key, &text, match seed_lang.as_deref() { Some("en") => "US", Some("de") => "DE", Some("fr") => "FR", Some("es") => "ES", _ => "RU" }, &fav).await {
-                Ok(mut v) => { for t in &mut v { if t.tags.is_empty() { t.tags = qt.clone(); } } cand.extend(v); }
-                Err(x) => { if !out_info.errors.contains(&x) { out_info.errors.push(x); } }
-            }
+        // источники опрашиваются параллельно: подборка собирается быстрее
+        let region = match seed_lang.as_deref() { Some("en") => "US", Some("de") => "DE", Some("fr") => "FR", Some("es") => "ES", _ => "RU" };
+        let yt_f = async { if pos == Some(0) && has_yt { Some(yt_genre_tracks(&s, &yt_key, &text, region, &fav).await) } else { None } };
+        let sc_f = async { if ext && has_sc { Some(soundcloud::search(&sc_id, &sc_sec, &text, 10).await) } else { None } };
+        let jam_f = async { if has_jam { jamendo::search(&id, &p).await } else { Ok(vec![]) } };
+        let (ytr, scr, jam) = futures::join!(yt_f, sc_f, jam_f);
+        match ytr {
+            Some(Ok(mut v)) => { for t in &mut v { if t.tags.is_empty() { t.tags = qt.clone(); } } cand.extend(v); }
+            Some(Err(x)) => { if !out_info.errors.contains(&x) { out_info.errors.push(x); } }
+            None => {}
         }
-        if ext && has_sc {
-            match soundcloud::search(&sc_id, &sc_sec, &text, 10).await {
-                Ok(mut v) => { for t in &mut v { if t.tags.is_empty() { t.tags = qt.clone(); } } cand.extend(v); }
-                Err(x) => out_info.errors.push(format!("SoundCloud: {x}")),
-            }
+        match scr {
+            Some(Ok(mut v)) => { for t in &mut v { if t.tags.is_empty() { t.tags = qt.clone(); } } cand.extend(v); }
+            Some(Err(x)) => out_info.errors.push(format!("SoundCloud: {x}")),
+            None => {}
         }
-        let jam = if has_jam { jamendo::search(&id, &p).await } else { Ok(vec![]) };
         // строгий язык: если выбран язык, чужих треков в «Эхо» нет в любом источнике
         let strict_lang = seed_lang.clone().filter(|l| !l.is_empty() && lang_strict != Some(false));
         if let Some(l) = &strict_lang { silo_core::langfilter::retain(&mut cand, l); }
@@ -852,6 +900,8 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let db = Db::open(&dir.join("silo.db")).map_err(|x| x.to_string())?;
+            // своя папка с музыкой: разрешаем плееру читать её файлы
+            if let Ok(Some(f)) = db.get_setting("music_folder") { if !f.is_empty() { let _ = app.asset_protocol_scope().allow_directory(&f, true); } }
             app.manage(App { db: Mutex::new(db), music_dir: dir.join("Music") });
             // трей: музыка играет и при скрытом окне
             use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter};
@@ -883,7 +933,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
-            get_setting, set_setting, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, notify, set_autostart, scrobble, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
+            get_setting, set_setting, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, notify, set_autostart, scrobble, reorder_playlist, scan_folder, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
             create_playlist, delete_playlist, playlist_tracks, add_to_playlist,
             remove_from_playlist, list_downloads, download_track
         ])

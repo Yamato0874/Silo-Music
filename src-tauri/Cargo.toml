@@ -21,3 +21,5 @@ windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_Foundatio
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
+futures = "0.3"
+lofty = "0.22"

@@ -3,7 +3,7 @@ import { api, ArtistSeed, Playlist, Track } from "./api";
 import { setLang, t } from "./i18n";
 import { AppCtx, Tab } from "./ctx";
 import { DEFAULTS, Prefs, isTheme, qualityFormat } from "./prefs";
-import Player, { PlayerHandle, holdNext } from "./Player";
+import Player, { PlayerHandle, analyser, holdNext } from "./Player";
 import { psGet, psSet, usePs } from "./psStore";
 import { RateButtons } from "./TrackList";
 import { eqOf, migrateTastes, searchNodes, seedFor } from "./tastes";
@@ -71,6 +71,28 @@ function Lyrics({ tr, onClose }: { tr: Track; onClose: () => void }) {
   );
 }
 
+/** Визуализатор спектра на месте обложки. */
+function Viz({ onClose }: { onClose: () => void }) {
+  const c = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const draw = () => {
+      const cv = c.current, an = analyser;
+      if (cv && an) {
+        const g = cv.getContext("2d")!, d = new Uint8Array(an.frequencyBinCount); an.getByteFrequencyData(d);
+        g.clearRect(0, 0, cv.width, cv.height);
+        g.fillStyle = getComputedStyle(cv).color;
+        const w = cv.width / d.length;
+        d.forEach((v, i) => { const h = (v / 255) * cv.height; g.fillRect(i * w, cv.height - h, w - 1, h); });
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return <canvas ref={c} className="viz" width={56} height={56} onClick={onClose} title={analyser ? "" : t.vizHint} />;
+}
+
 const shuffled = (n: number, first: number) => {
   const r = Array.from({ length: n }, (_, i) => i).filter((i) => i !== first);
   for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
@@ -100,6 +122,7 @@ export default function App() {
   const [showQ, setShowQ] = useState(false);
   const [showL, setShowL] = useState(false);
   const [mini, setMini] = useState(false);
+  const [viz, setViz] = useState(false);
   /** мини-плеер: маленькое окно поверх всех */
   const toggleMini = async () => {
     const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
@@ -396,7 +419,7 @@ export default function App() {
         <Player ref={player} track={cur} nextTrack={nextTrack} prefs={prefs} onEnded={ended} onCrossfaded={crossfaded} onState={psSet} onWarn={setErr} />
         <footer>
           <div className="now">
-            {cur ? <>{cur.image ? <img src={cur.image} alt="" /> : <span className="ph" />}<div className="np"><b>{cur.name}</b><span>{cur.artist}</span></div><RateButtons tr={cur} /></> : <div className="np" />}
+            {cur ? <>{viz ? <Viz onClose={() => setViz(false)} /> : cur.image ? <img src={cur.image} alt="" onClick={() => { setViz(true); if (!analyser) setErr(t.vizHint); }} /> : <span className="ph" onClick={() => { setViz(true); if (!analyser) setErr(t.vizHint); }} />}<div className="np"><b>{cur.name}</b><span>{cur.artist}</span></div><RateButtons tr={cur} /></> : <div className="np" />}
           </div>
           <Transport player={player} skip={skip} prefs={prefs} setPrefs={setPrefs} />
           <div className="side">

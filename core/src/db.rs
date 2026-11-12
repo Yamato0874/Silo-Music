@@ -287,6 +287,16 @@ impl Db {
         )?;
         Ok(())
     }
+    pub fn reorder_playlist(&self, id: i64, from: usize, to: usize) -> Result<()> {
+        let mut v = self.playlist_tracks(id)?;
+        if from >= v.len() || to >= v.len() { return Ok(()); }
+        let t = v.remove(from); v.insert(to, t);
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?", [id])?;
+        for (i, t) in v.iter().enumerate() { tx.execute("INSERT INTO playlist_tracks(playlist_id,pos,track) VALUES(?,?,?)", params![id, i as i64, serde_json::to_string(t)?])?; }
+        tx.commit()?;
+        Ok(())
+    }
     pub fn playlist_tracks(&self, id: i64) -> Result<Vec<Track>> {
         let mut s = self.conn.prepare("SELECT track FROM playlist_tracks WHERE playlist_id=? ORDER BY pos")?;
         let rows = s.query_map([id], |r| r.get::<_, String>(0))?;

@@ -346,7 +346,7 @@ export function Playlists() {
           </div>
         )}
         {!sel && virt && <><div className="row head"><div className="title"><b>{virt}</b></div><Btn icon="play" variant="primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>{t.playAll}</Btn></div><TrackList tracks={tracks} /></>}
-        {sel && <TrackList tracks={tracks} onRemove={(tr) => api.removeFromPlaylist(sel.id, tr.id).then(() => api.playlistTracks(sel.id).then(setTracks))} />}
+        {sel && <TrackList tracks={tracks} onMove={(a, b) => api.reorderPlaylist(sel.id, a, b).then(() => api.playlistTracks(sel.id).then(setTracks))} onRemove={(tr) => api.removeFromPlaylist(sel.id, tr.id).then(() => api.playlistTracks(sel.id).then(setTracks))} />}
       </div>
     </div>
   );
@@ -423,6 +423,7 @@ export function Settings() {
       <Check k="autostart" label={t.autostartOpt} />
       <p className="muted">{t.globalKeys}</p>
       <Backup />
+      <Folder />
       {prefs.eqOn && (
         <>
           <div className="eq">
@@ -575,6 +576,24 @@ export function HomeExtras() {
       </section>
       {daily.length > 0 && <section><div className="row head"><h4 className="shelf-t">{t.daily}</h4><Btn size="sm" onClick={() => play(daily, 0)}>{t.playAll}</Btn><Btn size="sm" onClick={() => build(true).catch((x) => onError(String(x)))}>{t.refresh}</Btn></div><TrackList tracks={daily.slice(0, 10)} /></section>}
       {disc.length > 0 && <section><div className="row head"><h4 className="shelf-t">{t.discover}</h4><Btn size="sm" onClick={() => play(disc, 0)}>{t.playAll}</Btn></div><TrackList tracks={disc.slice(0, 10)} /></section>}
+    </>
+  );
+}
+
+/** Своя папка с музыкой: сканирование тегов, файлы попадают в библиотеку. */
+function Folder() {
+  const { onError } = useApp();
+  const [path, setPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.getSetting("music_folder").then((x) => x && setPath(x)).catch(() => {}); }, []);
+  return (
+    <>
+      <h3>{t.folder}</h3>
+      <p className="muted">{t.folderHint}</p>
+      <div className="row" style={{ gap: 8 }}>
+        <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="C:\\Users\\...\\Music" />
+        <Btn variant="solid" disabled={busy || !path.trim()} onClick={() => { setBusy(true); api.scanFolder(path).then((n) => onError(t.scanned + ": " + n)).catch((x) => onError(String(x))).finally(() => setBusy(false)); }}>{busy ? "…" : t.scan}</Btn>
+      </div>
     </>
   );
 }
