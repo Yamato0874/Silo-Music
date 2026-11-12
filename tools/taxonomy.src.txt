@@ -1,0 +1,480 @@
+# Источник таксономии для «Эхо». Генерируется в taxonomy/taxonomy.json:  python3 tools/build_taxonomy.py
+# Формат.  @fam id|ru|en|eq-пресет|теги Jamendo     — семейство
+#          -  id|ru|en|теги Jamendo|синонимы|близкие id|язык   — жанр (--, --- — глубже)
+#          @grp kind id|ru|en     — группа без жанров (mood, context, era, lang)
+# Теги/синонимы/близкие — через запятую. Пустые теги наследуются от родителя при запросе.
+@fam rock|Рок|Rock|rock|rock
+- classic_rock|Классический рок|Classic rock|rock,classicrock|классик рок,70s rock|hard_rock,blues_rock
+- hard_rock|Хард-рок|Hard rock|hardrock,rock|хард рок|classic_rock,heavy_metal
+- blues_rock|Блюз-рок|Blues rock|bluesrock,rock|блюз рок|blues,classic_rock
+- psychedelic_rock|Психоделический рок|Psychedelic rock|psychedelic,rock|психоделика,психодел|prog_rock,space_rock
+- prog_rock|Прогрессивный рок|Progressive rock|progressive,progrock|прог рок,прог|psychedelic_rock,art_rock
+- art_rock|Арт-рок|Art rock|artrock,rock|арт рок|prog_rock
+- space_rock|Спейс-рок|Space rock|spacerock,rock|спейс рок|psychedelic_rock,post_rock
+- folk_rock|Фолк-рок|Folk rock|folkrock,rock|фолк рок|folk,indie_rock
+- southern_rock|Южный рок|Southern rock|southernrock,rock|саузерн рок|country_rock,blues_rock
+- country_rock|Кантри-рок|Country rock|countryrock,rock|кантри рок|southern_rock,country
+- garage_rock|Гаражный рок|Garage rock|garagerock,rock|гараж|punk_rock,indie_rock
+- surf_rock|Сёрф-рок|Surf rock|surf,rock|сёрф,серф|garage_rock
+- rockabilly|Рокабилли|Rockabilly|rockabilly,rock|рокабилли|rock_n_roll,country
+- rock_n_roll|Рок-н-ролл|Rock and roll|rocknroll,rock|рок н ролл|rockabilly,classic_rock
+- glam_rock|Глэм-рок|Glam rock|glam,rock|глэм|hard_rock
+- soft_rock|Софт-рок|Soft rock|softrock,rock|софт рок,мягкий рок|pop_rock
+- pop_rock|Поп-рок|Pop rock|poprock,rock,pop|поп рок|soft_rock,pop
+- alt_rock|Альтернативный рок|Alternative rock|alternative,rock|альтернатива,альтернативный рок|indie_rock,grunge
+- grunge|Гранж|Grunge|grunge,rock|гранж|alt_rock,hard_rock
+- post_rock|Пост-рок|Post-rock|postrock,instrumental|пост рок|space_rock,ambient
+- shoegaze|Шугейз|Shoegaze|shoegaze,rock|шугейз|dream_pop,alt_rock
+- math_rock|Мат-рок|Math rock|mathrock,rock|мат рок|post_rock,indie_rock
+- stoner_rock|Стоунер-рок|Stoner rock|stoner,rock|стоунер|doom_metal,hard_rock
+- russian_rock|Русский рок|Russian rock|rock|русский рок,рок на русском|rock|ru
+- rock_ballad|Рок-баллады|Rock ballads|rock,ballad|баллады|soft_rock
+@fam punk|Панк и хардкор|Punk & hardcore|punk|punk
+- punk_rock|Панк-рок|Punk rock|punk,punkrock|панк|pop_punk,garage_rock
+- pop_punk|Поп-панк|Pop punk|poppunk,punk|поп панк|punk_rock,emo
+- hardcore_punk|Хардкор-панк|Hardcore punk|hardcore,punk|хардкор|punk_rock,thrash_metal
+- post_punk|Постпанк|Post-punk|postpunk,punk|пост панк,постпанк|new_wave,goth_rock
+- new_wave|Нью-вейв|New wave|newwave,wave|нью вейв|post_punk,synthpop
+- emo|Эмо|Emo|emo,rock|эмо|pop_punk,post_hardcore
+- post_hardcore|Пост-хардкор|Post-hardcore|posthardcore,hardcore|пост хардкор|emo,metalcore
+- ska_punk|Ска-панк|Ska punk|ska,punk|ска панк,ска|ska,punk_rock
+- oi|Oi!|Oi!|punk,oi|ой|punk_rock
+- crust|Краст и d-beat|Crust & d-beat|crust,hardcore|краст|hardcore_punk,grindcore
+- folk_punk|Фолк-панк|Folk punk|folkpunk,punk|фолк панк|folk,punk_rock
+- russian_punk|Русский панк|Russian punk|punk|русский панк,панк на русском|punk_rock|ru
+- goth_rock|Готик-рок|Gothic rock|goth,gothic|готика,готик|post_punk,darkwave
+@fam metal|Метал|Metal|metal|metal
+- heavy_metal|Хеви-метал|Heavy metal|heavymetal,metal|хеви|hard_rock,power_metal
+- thrash_metal|Трэш-метал|Thrash metal|thrash,metal|треш,трэш|heavy_metal,death_metal
+- death_metal|Дэт-метал|Death metal|deathmetal,death|дэт,дэт метал|thrash_metal,black_metal
+- black_metal|Блэк-метал|Black metal|blackmetal,black|блэк|death_metal,atmospheric_black
+- atmospheric_black|Атмосферный блэк|Atmospheric black metal|blackmetal,atmospheric|атмосферный блэк|black_metal,dark_ambient
+- doom_metal|Дум-метал|Doom metal|doom,metal|дум|stoner_rock,sludge
+- sludge|Слаж|Sludge metal|sludge,metal|слаж|doom_metal,hardcore_punk
+- power_metal|Пауэр-метал|Power metal|powermetal,metal|пауэр|heavy_metal,symphonic_metal
+- symphonic_metal|Симфоник-метал|Symphonic metal|symphonic,metal|симфо метал,симфоник|power_metal,gothic_metal
+- gothic_metal|Готик-метал|Gothic metal|gothicmetal,metal|готик метал|symphonic_metal,doom_metal
+- folk_metal|Фолк-метал|Folk metal|folkmetal,metal|фолк метал|power_metal,folk
+- progressive_metal|Прог-метал|Progressive metal|progmetal,metal|прог метал|prog_rock,heavy_metal
+- metalcore|Металкор|Metalcore|metalcore,metal|металкор|post_hardcore,death_metal
+- deathcore|Дэткор|Deathcore|deathcore,metal|дэткор|metalcore,death_metal
+- nu_metal|Ню-метал|Nu metal|numetal,metal|ню метал,нью метал|alt_rock,industrial_metal
+- industrial_metal|Индастриал-метал|Industrial metal|industrial,metal|индастриал метал|nu_metal,industrial
+- groove_metal|Грув-метал|Groove metal|groove,metal|грув|thrash_metal
+- grindcore|Грайндкор|Grindcore|grindcore,metal|гринд|death_metal,crust
+- djent|Дьент|Djent|djent,metal|дьент,djent|progressive_metal,metalcore
+- russian_metal|Русский метал|Russian metal|metal|русский метал|heavy_metal|ru
+@fam indie|Инди и альтернатива|Indie & alternative|indie|indie,alternative
+- indie_rock|Инди-рок|Indie rock|indie,rock|инди рок|alt_rock,garage_rock
+- indie_pop|Инди-поп|Indie pop|indiepop,indie|инди поп|dream_pop,pop
+- indie_folk|Инди-фолк|Indie folk|indiefolk,folk|инди фолк|folk,singer_songwriter
+- dream_pop|Дрим-поп|Dream pop|dreampop,dream|дрим поп|shoegaze,indie_pop
+- lofi_indie|Лоу-фай инди|Lo-fi indie|lofi,indie|лоуфай инди|indie_rock
+- bedroom_pop|Бедрум-поп|Bedroom pop|bedroompop,indie|бедрум|indie_pop,lofi_beats
+- chamber_pop|Камерный поп|Chamber pop|chamberpop,indie|камерный поп|indie_pop,orchestral_pop
+- britpop|Брит-поп|Britpop|britpop,rock|британский поп|indie_rock,pop_rock
+- jangle_pop|Джангл-поп|Jangle pop|jangle,indie|джангл|indie_pop
+- singer_songwriter|Авторская песня|Singer-songwriter|singersongwriter,acoustic|автор-исполнитель,бард,авторская|folk,indie_folk
+- art_pop|Арт-поп|Art pop|artpop,pop|арт поп|indie_pop,electropop
+- russian_indie|Русская инди-сцена|Russian indie|indie|русское инди,русская альтернатива|indie_rock|ru
+@fam hiphop|Рэп и хип-хоп|Rap & hip-hop|bass|hiphop,rap
+- boom_bap|Бумбэп|Boom bap|hiphop,boombap|бумбэп,бум бэп|old_school_hiphop,jazz_rap
+- old_school_hiphop|Олдскул хип-хоп|Old school hip-hop|hiphop,oldschool|олдскул|boom_bap
+- gangsta_rap|Гангста-рэп|Gangsta rap|gangsta,hiphop|гангста|west_coast,trap
+- west_coast|Вест-кост|West Coast hip-hop|hiphop,westcoast|западное побережье|gangsta_rap,g_funk
+- g_funk|Джи-фанк|G-funk|gfunk,hiphop|джи фанк|west_coast,funk
+- east_coast|Ист-кост|East Coast hip-hop|hiphop,eastcoast|восточное побережье|boom_bap
+- southern_hiphop|Южный рэп|Southern hip-hop|hiphop,south,crunk|южный рэп,саус|trap,crunk
+- crunk|Крэнк|Crunk|crunk,hiphop|крэнк|southern_hiphop,trap
+- trap|Трэп|Trap|trap,hiphop|трэп,треп|drill,cloud_rap
+- drill|Дрилл|Drill|drill,hiphop|дрилл|trap,grime
+- uk_drill|UK drill|UK drill|drill,hiphop|юк дрилл|drill,grime
+- grime|Грайм|Grime|grime|грайм|uk_drill,garage_uk
+- cloud_rap|Клауд-рэп|Cloud rap|cloudrap,hiphop|клауд рэп|trap,lofi_hiphop
+- lofi_hiphop|Лоу-фай хип-хоп|Lo-fi hip-hop|lofi,hiphop,chillhop|лоуфай,lofi,чиллхоп|chillhop,jazz_rap
+- chillhop|Чиллхоп|Chillhop|chillhop,hiphop|чиллхоп|lofi_hiphop
+- jazz_rap|Джаз-рэп|Jazz rap|jazzhop,hiphop|джаз рэп|boom_bap,jazz
+- conscious_hiphop|Сознательный рэп|Conscious hip-hop|hiphop,conscious|осознанный рэп|boom_bap,spoken_word
+- underground_hiphop|Андеграунд-рэп|Underground hip-hop|hiphop,underground|андеграунд|boom_bap,experimental_hiphop
+- experimental_hiphop|Экспериментальный хип-хоп|Experimental hip-hop|hiphop,experimental|эксперимент хип-хоп|underground_hiphop,glitch
+- pop_rap|Поп-рэп|Pop rap|hiphop,pop|поп рэп|trap,pop
+- emo_rap|Эмо-рэп|Emo rap|hiphop,emo|эмо рэп|cloud_rap,trap
+- phonk|Фонк|Phonk|phonk|фонк,фонк|trap,memphis
+- memphis|Мемфис|Memphis rap|hiphop,memphis|мемфис|phonk,southern_hiphop
+- rap_rock|Рэп-рок|Rap rock|raprock,hiphop|рэпкор,рэп рок|nu_metal
+- spoken_word|Спокен-ворд|Spoken word|spokenword|стихи,спокен ворд|conscious_hiphop
+- russian_rap|Русский рэп|Russian rap|hiphop,rap|русский рэп,русский хип-хоп,рэп на русском|trap,boom_bap|ru
+- russian_trap|Русский трэп|Russian trap|trap,hiphop|русский трэп|trap,russian_rap|ru
+- russian_drill|Русский дрилл|Russian drill|drill,hiphop|русский дрилл|drill,russian_rap|ru
+- us_rap|Американский рэп|US rap|hiphop,rap|американский рэп,us hip-hop|trap,boom_bap|en
+- french_rap|Французский рэп|French rap|hiphop,rap|французский рэп|trap|fr
+- german_rap|Немецкий рэп|German rap|hiphop,rap|немецкий рэп|trap|de
+- latin_trap|Латин-трэп|Latin trap|trap,latin|латин трэп|trap,reggaeton|es
+@fam electronic|Электроника|Electronic|electronic|electronic
+- house|Хаус|House|house|хаус|deep_house,tech_house
+- deep_house|Дип-хаус|Deep house|deephouse,house|дип хаус|house,lounge_house
+- tech_house|Тек-хаус|Tech house|techhouse,house|тек хаус|house,techno
+- progressive_house|Прогрессив-хаус|Progressive house|progressivehouse,house|прогрессив хаус|house,trance
+- electro_house|Электро-хаус|Electro house|electrohouse,house|электро хаус|house,edm
+- acid_house|Эйсид-хаус|Acid house|acidhouse,house|эйсид|house,techno
+- chicago_house|Чикаго-хаус|Chicago house|house,chicago|чикаго хаус|house
+- afro_house|Афро-хаус|Afro house|afrohouse,house|афро хаус|house,afrobeats
+- tropical_house|Тропикал-хаус|Tropical house|tropicalhouse,house|тропикал|deep_house,dance_pop
+- lounge_house|Лаунж-хаус|Lounge house|lounge,house|лаунж хаус|deep_house,chillout
+- future_house|Фьючер-хаус|Future house|futurehouse,house|фьючер хаус|electro_house
+- techno|Техно|Techno|techno|техно|minimal_techno,detroit_techno
+- minimal_techno|Минимал-техно|Minimal techno|minimal,techno|минимал|techno,house
+- detroit_techno|Детройт-техно|Detroit techno|techno,detroit|детройт|techno
+- acid_techno|Эйсид-техно|Acid techno|acid,techno|эйсид техно|techno,hard_techno
+- hard_techno|Хард-техно|Hard techno|hardtechno,techno|хард техно|techno,hardstyle
+- industrial_techno|Индастриал-техно|Industrial techno|industrial,techno|индастриал техно|techno,industrial
+- trance|Транс|Trance|trance|транс|progressive_trance,psytrance
+- progressive_trance|Прогрессив-транс|Progressive trance|trance,progressive|прогрессив транс|trance
+- uplifting_trance|Аплифтинг-транс|Uplifting trance|trance,uplifting|аплифтинг|trance
+- psytrance|Психоделический транс|Psytrance|psytrance,trance|псай,психотранс,псайтранс|goa_trance,full_on
+- goa_trance|Гоа-транс|Goa trance|goa,trance|гоа|psytrance
+- full_on|Фулл-он|Full-on|psytrance,fullon|фулл он|psytrance
+- dubstep|Дабстеп|Dubstep|dubstep|дабстеп|brostep,riddim
+- brostep|Бростеп|Brostep|dubstep,brostep|бростеп|dubstep
+- riddim|Ридим|Riddim|riddim,dubstep|ридим|dubstep
+- melodic_dubstep|Мелодик-дабстеп|Melodic dubstep|dubstep,melodic|мелодик дабстеп|dubstep,future_bass
+- drum_and_bass|Драм-н-бейс|Drum and bass|drumnbass,dnb|драм н бейс,днб,dnb|liquid_dnb,neurofunk
+- liquid_dnb|Ликвид-DnB|Liquid drum and bass|liquid,drumnbass|ликвид|drum_and_bass
+- neurofunk|Нейрофанк|Neurofunk|neurofunk,drumnbass|нейрофанк|drum_and_bass,jungle
+- jungle|Джанглз|Jungle|jungle|джангл|drum_and_bass,breakbeat
+- breakbeat|Брейкбит|Breakbeat|breakbeat,breaks|брейк,брейкбит|jungle,big_beat
+- big_beat|Биг-бит|Big beat|bigbeat,breakbeat|биг бит|breakbeat
+- garage_uk|UK-гэридж|UK garage|ukgarage,garage|юк гэридж|2step,grime
+- 2step|2-step|2-step|2step,garage|ту степ|garage_uk
+- bass_music|Бейс-музыка|Bass music|bass,electronic|бейс|dubstep,trap_edm
+- trap_edm|Трэп (EDM)|Trap EDM|trap,edm|эдм трэп|trap,edm
+- future_bass|Фьючер-бейс|Future bass|futurebass,electronic|фьючер бейс|melodic_dubstep,kawaii_bass
+- kawaii_bass|Каваи-бейс|Kawaii future bass|futurebass,kawaii|каваи|future_bass
+- edm|EDM|EDM|edm,dance|эдм,танцевальная электроника|electro_house,dance_pop
+- big_room|Биг-рум|Big room|bigroom,edm|биг рум|edm,electro_house
+- hardstyle|Хардстайл|Hardstyle|hardstyle|хардстайл|hardcore_techno,gabber
+- gabber|Габбер|Gabber|gabber,hardcore|габбер|hardstyle
+- hardcore_techno|Хардкор-техно|Hardcore techno|hardcore,techno|хардкор техно|gabber
+- synthwave|Синтвейв|Synthwave|synthwave,retro|синтвейв,ретровейв|outrun,darksynth
+- outrun|Аутран|Outrun|outrun,synthwave|аутран|synthwave
+- darksynth|Дарксинт|Darksynth|darksynth,synthwave|дарксинт|synthwave,industrial
+- vaporwave|Вейпорвейв|Vaporwave|vaporwave|вейпорвейв|future_funk,deep_house
+- future_funk|Фьючер-фанк|Future funk|futurefunk,funk|фьючер фанк|vaporwave,disco
+- synthpop|Синти-поп|Synthpop|synthpop,pop|синти поп,синтипоп|new_wave,electropop
+- electropop|Электропоп|Electropop|electropop,pop|электропоп|synthpop,dance_pop
+- electro|Электро|Electro|electro|электро|electroclash,techno
+- electroclash|Электроклэш|Electroclash|electroclash|электроклэш|electro
+- idm|IDM|IDM|idm,experimental|идм|glitch,ambient_techno
+- glitch|Глитч|Glitch|glitch,experimental|глитч|idm
+- ebm|EBM|EBM|ebm,industrial|эбм|industrial,darkwave
+- industrial|Индастриал|Industrial|industrial|индастриал|ebm,industrial_techno
+- darkwave|Даркуэйв|Darkwave|darkwave,dark|даркуэйв|goth_rock,ebm
+- italo|Итало-диско|Italo disco|italo,disco|итало|disco,synthpop
+- eurodance|Евродэнс|Eurodance|eurodance,dance|евродэнс|dance_pop,trance
+- hands_up|Хэндс-ап|Hands up|handsup,dance|хэндс ап|eurodance
+- electro_swing|Электро-свинг|Electro swing|electroswing,swing|электро свинг|swing,house
+- chiptune|Чиптюн|Chiptune|chiptune,8bit|чиптюн,8-бит|videogame,idm
+- complextro|Комплекстро|Complextro|complextro,electro|комплекстро|electro_house
+- russian_electronic|Русская электроника|Russian electronic|electronic|русская электроника|techno|ru
+@fam pop|Поп|Pop|pop|pop
+- dance_pop|Танцевальный поп|Dance pop|dancepop,pop|дэнс поп|electropop,edm
+- teen_pop|Тин-поп|Teen pop|teenpop,pop|тин поп|dance_pop
+- k_pop|K-pop|K-pop|kpop,pop|кпоп,к-поп|j_pop,dance_pop|ko
+- j_pop|J-pop|J-pop|jpop,pop|джей-поп,джейпоп|k_pop,anime|ja
+- c_pop|C-pop|C-pop|cpop,pop|китайский поп|k_pop|zh
+- europop|Европоп|Europop|europop,pop|европоп|eurodance,dance_pop
+- synth_pop_80s|Поп 80-х|80s pop|pop,80s|поп 80-х,80s pop|synthpop,new_wave
+- power_pop|Пауэр-поп|Power pop|powerpop,pop|пауэр поп|pop_rock
+- baroque_pop|Барокко-поп|Baroque pop|baroquepop,pop|барокко поп|chamber_pop
+- orchestral_pop|Оркестровый поп|Orchestral pop|orchestral,pop|оркестровый поп|chamber_pop,soundtrack_pop
+- adult_contemporary|Взрослый поп|Adult contemporary|pop,easylistening|эдалт контемпорари|soft_rock,easy_listening
+- hyperpop|Гиперпоп|Hyperpop|hyperpop,pop|гиперпоп|electropop,glitch
+- latin_pop|Латинский поп|Latin pop|latinpop,pop,latin|латино поп|latin,dance_pop|es
+- french_pop|Французский поп|French pop|pop,chanson|французский поп|chanson|fr
+- italian_pop|Итальянский поп|Italian pop|pop,italian|итальянский поп|italo|it
+- schlager|Шлягер|Schlager|schlager|шлягер|europop|de
+- russian_pop|Русский поп|Russian pop|pop|русский поп,русская эстрада,эстрада|dance_pop|ru
+- russian_pop_rock|Русский поп-рок|Russian pop-rock|pop,rock|русский поп-рок|pop_rock,russian_rock|ru
+- chanson|Шансон|Chanson|chanson|шансон,блатняк,русский шансон|folk,singer_songwriter|ru
+- ballad|Баллады|Ballads|ballad,pop|баллады,лирика|soft_rock,adult_contemporary
+@fam rnb|R&B и соул|R&B & soul|rnb|rnb,soul
+- contemporary_rnb|Современный R&B|Contemporary R&B|rnb|современный r&b,рнб|neo_soul,pop
+- neo_soul|Нео-соул|Neo-soul|neosoul,soul|нео соул,неосоул|rnb,jazz
+- classic_soul|Классический соул|Classic soul|soul|соул|motown,funk
+- motown|Мотаун|Motown|motown,soul|мотаун|classic_soul
+- northern_soul|Северный соул|Northern soul|northernsoul,soul|северный соул|motown
+- alt_rnb|Альтернативный R&B|Alternative R&B|rnb,alternative|альтернативный r&b|contemporary_rnb,lofi_hiphop
+- quiet_storm|Квайет-сторм|Quiet storm|rnb,quietstorm|квайет сторм|contemporary_rnb
+- new_jack_swing|Нью-джек-свинг|New jack swing|newjackswing,rnb|нью джек свинг|rnb,funk
+- gospel|Госпел|Gospel|gospel|госпел,духовная музыка|classic_soul,blues
+- soulful_house|Соул-хаус|Soulful house|soul,house|соул хаус|deep_house
+- blue_eyed_soul|Блю-айед соул|Blue-eyed soul|soul|белый соул|classic_soul
+@fam funk|Фанк и диско|Funk & disco|funk|funk,disco
+- funk_classic|Классический фанк|Classic funk|funk|фанк|classic_soul,p_funk
+- p_funk|Пи-фанк|P-funk|funk,pfunk|п фанк|funk_classic
+- disco|Диско|Disco|disco|диско|nu_disco,italo
+- nu_disco|Ню-диско|Nu-disco|nudisco,disco|ню диско,нью диско|disco,house
+- boogie|Бугги|Boogie|boogie,funk|бугги|disco
+- jazz_funk|Джаз-фанк|Jazz funk|jazzfunk,funk|джаз фанк|funk_classic,fusion
+- afrofunk|Афрофанк|Afrofunk|afrobeat,funk|афрофанк|afrobeats
+- funk_rock|Фанк-рок|Funk rock|funk,rock|фанк рок|funk_classic,alt_rock
+- electrofunk|Электрофанк|Electro funk|funk,electro|электрофанк|electro,funk_classic
+@fam jazz|Джаз|Jazz|jazz|jazz
+- bebop|Бибоп|Bebop|bebop,jazz|бибоп|cool_jazz,hard_bop
+- hard_bop|Хард-боп|Hard bop|hardbop,jazz|хард боп|bebop
+- cool_jazz|Кул-джаз|Cool jazz|cooljazz,jazz|кул джаз|bebop,modal_jazz
+- modal_jazz|Модальный джаз|Modal jazz|modal,jazz|модальный джаз|cool_jazz
+- swing|Свинг|Swing|swing,jazz|свинг|big_band,dixieland
+- big_band|Бигбэнд|Big band|bigband,jazz|бигбэнд|swing
+- dixieland|Диксиленд|Dixieland|dixieland,jazz|диксиленд|swing
+- smooth_jazz|Смут-джаз|Smooth jazz|smoothjazz,jazz|смут джаз|lounge,jazz_funk
+- acid_jazz|Эйсид-джаз|Acid jazz|acidjazz,jazz|эйсид джаз|jazz_funk,nu_jazz
+- nu_jazz|Нью-джаз|Nu jazz|nujazz,jazz|ню джаз|acid_jazz,downtempo
+- fusion|Фьюжн|Jazz fusion|fusion,jazz|фьюжн|jazz_funk,prog_rock
+- latin_jazz|Латин-джаз|Latin jazz|latinjazz,jazz|латин джаз|bossa_nova,jazz
+- bossa_nova|Босса-нова|Bossa nova|bossanova,latin|босса нова|latin_jazz,samba
+- vocal_jazz|Вокальный джаз|Vocal jazz|vocaljazz,jazz|вокальный джаз|swing,standards
+- standards|Джазовые стандарты|Jazz standards|jazz,standards|стандарты|vocal_jazz
+- free_jazz|Фри-джаз|Free jazz|freejazz,jazz|фри джаз|avant_garde
+- gypsy_jazz|Джаз-мануш|Gypsy jazz|gypsyjazz,jazz|мануш,джанго|swing
+- jazz_piano|Джазовое фортепиано|Jazz piano|jazz,piano|джаз пиано|modal_jazz
+- jazz_guitar|Джазовая гитара|Jazz guitar|jazz,guitar|джаз гитара|jazz_piano
+- ecm_jazz|Нордик-джаз (ECM)|Nordic jazz|jazz,ecm|нордик джаз|modal_jazz,ambient
+- jazz_cafe|Джаз для кафе|Cafe jazz|jazz,lounge|кафе джаз,фоновый джаз|smooth_jazz,lounge
+@fam blues|Блюз|Blues|blues|blues
+- delta_blues|Дельта-блюз|Delta blues|deltablues,blues|дельта|chicago_blues
+- chicago_blues|Чикагский блюз|Chicago blues|chicagoblues,blues|чикагский блюз|delta_blues
+- electric_blues|Электро-блюз|Electric blues|electricblues,blues|электро блюз|blues_rock
+- texas_blues|Техасский блюз|Texas blues|texasblues,blues|техасский блюз|blues_rock
+- acoustic_blues|Акустический блюз|Acoustic blues|blues,acoustic|акустический блюз|delta_blues
+- jump_blues|Джамп-блюз|Jump blues|jumpblues,blues|джамп|swing
+- rhythm_and_blues|Ритм-н-блюз|Rhythm and blues|rhythmandblues,blues|ритм-энд-блюз|classic_soul
+- blues_ballad|Блюзовые баллады|Blues ballads|blues,ballad|блюз баллады|blues
+@fam classical|Классика|Classical|classical|classical
+- baroque|Барокко|Baroque|baroque,classical|барокко,бах|renaissance
+- renaissance|Ренессанс|Renaissance|renaissance,earlymusic|ренессанс,старинная музыка|baroque
+- classical_era|Классицизм|Classical era|classical,mozart|моцарт,классицизм|baroque,romantic_era
+- romantic_era|Романтизм|Romantic era|romantic,classical|романтизм,шопен|classical_era,impressionism
+- impressionism|Импрессионизм|Impressionism|impressionism,classical|дебюсси,импрессионизм|romantic_era
+- modern_classical|Современная классика|Modern classical|modernclassical,classical|современная классика|neoclassical,minimalism
+- neoclassical|Неоклассика|Neoclassical|neoclassical,piano|неоклассика|modern_classical,ambient_piano
+- minimalism|Минимализм|Minimalism|minimalism,classical|минимализм,стив райх|modern_classical
+- opera|Опера|Opera|opera|опера|choral,vocal_classical
+- choral|Хоровая музыка|Choral|choral,classical|хор,хоровая|opera
+- vocal_classical|Классический вокал|Classical vocal|vocal,classical|классический вокал|opera
+- piano_solo|Фортепиано соло|Solo piano|piano,classical|пианино,фортепиано|neoclassical
+- ambient_piano|Эмбиент-фортепиано|Ambient piano|piano,ambient|эмбиент пиано|neoclassical,ambient
+- violin|Скрипка|Violin|violin,strings|скрипка|string_quartet
+- cello|Виолончель|Cello|cello,strings|виолончель|string_quartet
+- string_quartet|Струнные квартеты|String quartet|strings,quartet|квартет|violin,cello
+- orchestral|Оркестровая музыка|Orchestral|orchestral,classical|оркестр,симфоническая|symphony
+- symphony|Симфонии|Symphony|symphony,classical|симфония|orchestral
+- concerto|Концерты|Concerto|concerto,classical|концерт|symphony
+- chamber|Камерная музыка|Chamber music|chamber,classical|камерная|string_quartet
+- guitar_classical|Классическая гитара|Classical guitar|guitar,classical|классическая гитара|flamenco
+- organ|Орган|Organ|organ,classical|орган|baroque
+- epic_orchestral|Эпическая оркестровая|Epic orchestral|epic,orchestral|эпик|film_score,trailer_music
+- early_music|Средневековая музыка|Medieval music|medieval,earlymusic|средневековая|renaissance,dark_folk
+@fam folk|Фолк и акустика|Folk & acoustic|folk|folk,acoustic
+- american_folk|Американский фолк|American folk|folk,americana|американский фолк|folk_revival,americana
+- folk_revival|Фолк-ривайвл|Folk revival|folk,revival|фолк ривайвл|american_folk
+- americana|Американа|Americana|americana,folk|американа|american_folk,country
+- celtic|Кельтская музыка|Celtic|celtic|кельтская|irish_folk,scottish_folk
+- irish_folk|Ирландский фолк|Irish folk|irish,celtic|ирландский фолк,ирландская|celtic
+- scottish_folk|Шотландский фолк|Scottish folk|scottish,celtic|шотландский фолк|celtic
+- nordic_folk|Скандинавский фолк|Nordic folk|nordic,folk|скандинавский фолк,нордик|dark_folk,neofolk
+- dark_folk|Дарк-фолк|Dark folk|darkfolk,folk|дарк фолк|neofolk,nordic_folk
+- neofolk|Неофолк|Neofolk|neofolk,folk|неофолк|dark_folk
+- pagan_folk|Языческий фолк|Pagan folk|pagan,folk|языческий фолк,паган|nordic_folk
+- acoustic_pop|Акустический поп|Acoustic pop|acoustic,pop|акустика,акустический поп|singer_songwriter
+- acoustic_guitar|Акустическая гитара|Acoustic guitar|acoustic,guitar|гитара,акустическая гитара|fingerstyle
+- fingerstyle|Фингерстайл|Fingerstyle|fingerstyle,guitar|фингерстайл|acoustic_guitar
+- bluegrass|Блюграсс|Bluegrass|bluegrass|блюграсс|country,american_folk
+- banjo|Банджо|Banjo|banjo,folk|банджо|bluegrass
+- ukulele|Укулеле|Ukulele|ukulele|укулеле|acoustic_pop
+- folktronica|Фолктроника|Folktronica|folktronica,folk|фолктроника|indie_folk,downtempo
+- russian_folk|Русский фолк|Russian folk|folk|русский фолк,народная|folk|ru
+- slavic_folk|Славянский фолк|Slavic folk|folk,slavic|славянский фолк|russian_folk
+- bard|Бардовская песня|Bard song|acoustic,folk|бардовская,гитарная поэзия|singer_songwriter|ru
+@fam country|Кантри|Country|country|country
+- classic_country|Классический кантри|Classic country|country|кантри|honky_tonk,outlaw_country
+- honky_tonk|Хонки-тонк|Honky tonk|honkytonk,country|хонки тонк|classic_country
+- outlaw_country|Аутло-кантри|Outlaw country|outlaw,country|аутло|classic_country
+- country_pop|Кантри-поп|Country pop|countrypop,country|кантри поп|pop
+- alt_country|Альт-кантри|Alt-country|altcountry,country|альт кантри|americana
+- bro_country|Бро-кантри|Bro-country|country|бро кантри|country_pop
+- western|Вестерн|Western|western,country|вестерн|classic_country
+- country_blues|Кантри-блюз|Country blues|country,blues|кантри блюз|delta_blues
+@fam reggae|Регги и Карибы|Reggae & Caribbean|reggae|reggae
+- roots_reggae|Рутс-регги|Roots reggae|reggae,roots|рутс|dub
+- dub|Даб|Dub|dub,reggae|даб|roots_reggae
+- dancehall|Дэнсхолл|Dancehall|dancehall|дэнсхолл|reggaeton
+- ska|Ска|Ska|ska|ска|rocksteady,ska_punk
+- rocksteady|Рокстеди|Rocksteady|rocksteady,reggae|рокстеди|ska
+- reggae_fusion|Регги-фьюжн|Reggae fusion|reggae,fusion|регги фьюжн|reggae_rock
+- reggae_rock|Регги-рок|Reggae rock|reggaerock,reggae|регги рок|reggae_fusion
+- lovers_rock|Лаверс-рок|Lovers rock|loversrock,reggae|лаверс|roots_reggae
+- soca|Сока|Soca|soca|сока|calypso
+- calypso|Калипсо|Calypso|calypso|калипсо|soca
+- zouk|Зук|Zouk|zouk|зук|kompa
+- kompa|Компа|Kompa|kompa|компа|zouk
+@fam latin|Латино|Latin|latin|latin
+- reggaeton|Реггетон|Reggaeton|reggaeton|реггетон,регетон|dancehall,latin_trap|es
+- salsa|Сальса|Salsa|salsa|сальса|mambo,merengue|es
+- mambo|Мамбо|Mambo|mambo,latin|мамбо|salsa
+- merengue|Меренге|Merengue|merengue|меренге|bachata,salsa|es
+- bachata|Бачата|Bachata|bachata|бачата|merengue,salsa|es
+- cumbia|Кумбия|Cumbia|cumbia|кумбия|latin|es
+- tango|Танго|Tango|tango|танго|nuevo_tango,nuevo_tango|es
+- nuevo_tango|Нуэво-танго|Nuevo tango|tango,nuevo|нуэво танго|tango
+- flamenco|Фламенко|Flamenco|flamenco|фламенко|guitar_classical,latin_guitar|es
+- latin_guitar|Латинская гитара|Latin guitar|latin,guitar|испанская гитара|flamenco
+- samba|Самба|Samba|samba|самба|bossa_nova,pagode|pt
+- pagode|Пагоде|Pagode|pagode,samba|пагоде|samba|pt
+- mpb|MPB|MPB|mpb,brazilian|мпб|bossa_nova|pt
+- forro|Форро|Forro|forro|форро|samba|pt
+- baile_funk|Байле-фанк|Baile funk|bailefunk,funk|байле фанк,фавела|reggaeton|pt
+- latin_rock|Латино-рок|Latin rock|latin,rock|латино рок|rock|es
+- ranchera|Ранчера|Ranchera|ranchera,mexican|ранчера,мариачи|bolero|es
+- bolero|Болеро|Bolero|bolero|болеро|ranchera|es
+- norteno|Норteño|Norteno|norteno,mexican|нортеньо|ranchera|es
+- tropical_latin|Тропикал|Tropical|tropical,latin|тропикал|salsa
+- andean|Андская музыка|Andean|andean,folk|анды,андская|world_folk|es
+- reggaeton_old|Олдскул реггетон|Old school reggaeton|reggaeton|олдскул реггетон|reggaeton|es
+@fam world|Музыка мира|World|world|world
+- afrobeats|Афробитс|Afrobeats|afrobeats,afro|афробитс|afrobeat,amapiano
+- afrobeat|Афробит|Afrobeat|afrobeat,afro|афробит|afrobeats
+- amapiano|Амапиано|Amapiano|amapiano,house|амапиано|afrobeats,afro_house
+- highlife|Хайлайф|Highlife|highlife,african|хайлайф|afrobeat
+- west_african|Западноафриканская|West African|african,world|западная африка|highlife
+- ethiopian|Эфиопская|Ethiopian|ethiopian,african|эфиопская|west_african
+- north_african|Североафриканская|North African|african,arabic|северная африка|arabic
+- arabic|Арабская музыка|Arabic|arabic,middleeast|арабская,восток|turkish,persian
+- turkish|Турецкая музыка|Turkish|turkish|турецкая|arabic|tr
+- persian|Персидская музыка|Persian|persian,middleeast|персидская,иранская|arabic
+- klezmer|Клезмер|Klezmer|klezmer|клезмер|balkan,jewish_folk
+- jewish_folk|Еврейская музыка|Jewish folk|jewish,folk|еврейская|klezmer
+- balkan|Балканская музыка|Balkan|balkan|балканская,балкан|klezmer,gypsy_folk
+- gypsy_folk|Цыганская музыка|Romani|gypsy,romani|цыганская,цыганочка|balkan,gypsy_jazz|ru
+- greek|Греческая музыка|Greek|greek|греческая|balkan
+- celtic_world|Кельтика мира|Celtic world|celtic,world|кельтика|celtic
+- polka|Полька|Polka|polka|полька|folk
+- indian_classical|Индийская классика|Indian classical|indian,classical|индийская классика,рага|bollywood,sitar
+- bollywood|Болливуд|Bollywood|bollywood,indian|болливуд|indian_classical|hi
+- sitar|Ситар|Sitar|sitar,indian|ситар|indian_classical
+- qawwali|Каввали|Qawwali|qawwali|каввали|indian_classical
+- bhangra|Бхангра|Bhangra|bhangra|бхангра|bollywood
+- east_asian|Восточная Азия|East Asian|asian,world|азия|c_pop,japanese_trad
+- japanese_trad|Японская традиционная|Japanese traditional|japanese,world|японская|east_asian|ja
+- chinese_trad|Китайская традиционная|Chinese traditional|chinese,world|китайская|east_asian|zh
+- anime|Аниме|Anime|anime|аниме|j_pop,videogame
+- city_pop|Сити-поп|City pop|citypop,pop|сити поп|j_pop,disco|ja
+- gamelan|Гамелан|Gamelan|gamelan,world|гамелан|east_asian
+- hawaiian|Гавайская|Hawaiian|hawaiian,world|гавайская|ukulele
+- native_american|Индейская музыка|Native American|nativeamerican,world|индейская|world_folk
+- world_fusion|Этно-фьюжн|World fusion|worldfusion,world|этно,этническая|ethnic_electronic
+- ethnic_electronic|Этно-электроника|Ethnic electronic|ethnic,electronic|этно электроника|world_fusion,downtempo
+- throat_singing|Горловое пение|Throat singing|throat,world|горловое пение|world_fusion
+- world_folk|Мировой фолк|World folk|world,folk|мировой фолк|folk
+- caucasian|Кавказская музыка|Caucasian|caucasian,world|кавказская|balkan|ru
+@fam ambient|Эмбиент и чилл|Ambient & chill|ambient|ambient,chillout
+- ambient_classic|Классический эмбиент|Classic ambient|ambient|эмбиент|drone,space_ambient
+- dark_ambient|Дарк-эмбиент|Dark ambient|darkambient,ambient|дарк эмбиент|drone,atmospheric_black
+- drone|Дрон|Drone|drone,ambient|дрон|dark_ambient
+- space_ambient|Космический эмбиент|Space ambient|space,ambient|космос,спейс эмбиент|ambient_classic
+- ambient_techno|Эмбиент-техно|Ambient techno|ambient,techno|эмбиент техно|idm
+- new_age|Нью-эйдж|New age|newage|нью эйдж,нью-эйдж|meditation,ambient_classic
+- meditation|Медитативная музыка|Meditation|meditation,newage|медитация,медитативная|new_age,sleep
+- nature_sounds|Звуки природы|Nature sounds|nature,ambient|звуки природы,природа|meditation
+- chillout|Чилаут|Chillout|chillout|чилаут,чиллаут,чилл|downtempo,lounge
+- downtempo|Даунтемпо|Downtempo|downtempo|даунтемпо|chillout,trip_hop
+- trip_hop|Трип-хоп|Trip hop|triphop|трип хоп|downtempo,lofi_hiphop
+- lounge|Лаунж|Lounge|lounge|лаунж|chillout,easy_listening
+- easy_listening|Лёгкая музыка|Easy listening|easylistening,lounge|лёгкая,легкая музыка|lounge
+- chill_electronic|Чилл-электроника|Chill electronic|chillout,electronic|чилл электроника|downtempo
+- balearic|Балеарик|Balearic|balearic,chillout|балеарик|chillout
+- psybient|Псайбиент|Psybient|psybient,ambient|псайбиент|psytrance,ambient_classic
+- lofi_beats|Lo-fi биты|Lo-fi beats|lofi,chillout|лоуфай,lo-fi,lofi|lofi_hiphop,downtempo
+- sleep_music|Музыка для сна|Sleep music|sleep,ambient|для сна,сон|meditation
+- cinematic_ambient|Кинематографичный эмбиент|Cinematic ambient|cinematic,ambient|кинематографичный|film_score
+- minimal_ambient|Минимал-эмбиент|Minimal ambient|minimal,ambient|минимальный эмбиент|ambient_classic
+- field_recordings|Полевые записи|Field recordings|fieldrecording,ambient|полевые записи|nature_sounds
+@fam soundtrack|Саундтреки и сцена|Soundtracks & stage|soundtrack|soundtrack
+- film_score|Музыка из фильмов|Film score|soundtrack,film|кино,саундтрек,фильмы|trailer_music,orchestral
+- trailer_music|Трейлерная музыка|Trailer music|trailer,epic|трейлер,эпик|epic_orchestral
+- videogame|Игровая музыка|Video game music|videogame,game|игры,игровая|chiptune,anime
+- musical|Мюзиклы|Musicals|musical,theatre|мюзикл,мюзиклы|film_score
+- anime_ost|Саундтреки аниме|Anime OST|anime,soundtrack|аниме ost|anime,film_score
+- horror_score|Музыка ужасов|Horror score|horror,dark|ужасы|dark_ambient
+- cartoon|Мультфильмы|Cartoon music|cartoon,kids|мультфильмы,мульт|kids
+- kids|Детская музыка|Kids|kids,children|детская,для детей|cartoon
+- lullaby|Колыбельные|Lullabies|lullaby,kids|колыбельные|sleep_music,kids
+- soundtrack_pop|Поп из кино|Soundtrack pop|soundtrack,pop|поп из кино|film_score
+- library_music|Библиотечная музыка|Library music|library,production|библиотечная|corporate
+- corporate|Корпоративная музыка|Corporate|corporate,production|корпоративная,для видео|library_music
+- fanfare|Фанфары и марши|Fanfare & march|march,brass|марши,фанфары|orchestral
+- spy_jazz|Шпионский джаз|Spy jazz|spy,jazz|шпионский|film_score
+@fam experimental|Экспериментальная|Experimental|ambient|experimental
+- avant_garde|Авангард|Avant-garde|avantgarde,experimental|авангард|free_jazz
+- noise|Нойз|Noise|noise,experimental|нойз,шум|industrial,drone
+- musique_concrete|Конкретная музыка|Musique concrète|concrete,experimental|конкретная|glitch
+- krautrock|Краут-рок|Krautrock|krautrock,rock|краут|prog_rock,motorik
+- motorik|Моторик|Motorik|krautrock|моторик|krautrock
+- no_wave|Но-вейв|No wave|nowave|но вейв|post_punk
+- sound_art|Саунд-арт|Sound art|soundart,experimental|саунд арт|noise
+- generative|Генеративная музыка|Generative music|generative,ambient|генеративная|ambient_classic
+@grp mood mood|Настроение|Mood
+- calm|Спокойное|Calm|relaxing,calm,peaceful|спокойная,расслабленная,умиротворение|dreamy,sad
+- energetic|Энергичное|Energetic|energetic,upbeat|энергичная,бодрая,заряд|happy,epic
+- happy|Весёлое|Happy|happy,fun,upbeat|весёлая,радостная,позитив|energetic
+- sad|Грустное|Sad|sad,melancholic|грустная,печальная|melancholic,calm
+- melancholic|Меланхоличное|Melancholic|melancholic|меланхолия|sad,dreamy
+- romantic|Романтичное|Romantic|romantic,love|романтика,любовь|calm,sensual
+- sensual|Чувственное|Sensual|sensual,sexy|чувственная|romantic
+- dark_mood|Тёмное|Dark|dark,mysterious|тёмная,мрачная,мрачное|epic,aggressive
+- aggressive|Агрессивное|Aggressive|aggressive,angry|агрессивная,злая|energetic,dark_mood
+- epic|Эпичное|Epic|epic,powerful|эпичная,мощная|energetic,dark_mood
+- dreamy|Мечтательное|Dreamy|dreamy,ethereal|мечтательная,воздушная|calm,melancholic
+- nostalgic|Ностальгическое|Nostalgic|nostalgic,retro|ностальгия,ностальгическая|melancholic
+- uplifting|Вдохновляющее|Uplifting|uplifting,inspiring|вдохновляющая,мотивация|happy,energetic
+- groovy|Грувовое|Groovy|groovy,funky|грув,грувовая|energetic,happy
+- mysterious|Загадочное|Mysterious|mysterious,suspense|загадочная,таинственная|dark_mood
+- hypnotic|Гипнотическое|Hypnotic|hypnotic,trippy|гипнотическая,транс-состояние|dreamy
+@grp context context|Для чего|For
+- work_focus|Для работы и учёбы|Work & study|focus,study,instrumental|для работы,для учёбы,концентрация,фон|lofi_beats,calm
+- sleep|Для сна|Sleep|sleep,relaxing|сон,перед сном|sleep_music,calm
+- workout|Для тренировки|Workout|workout,energetic|спорт,тренировка,зал,бег|energetic,aggressive
+- party|Для вечеринки|Party|party,dance|вечеринка,тусовка|energetic,happy
+- driving|Для дороги|Driving|driving,roadtrip|за рулём,дорога,поездка|energetic,groovy
+- relax|Для отдыха|Relax|relax,chill|отдых,расслабление|calm
+- morning|Для утра|Morning|morning,sunny|утро,бодрое утро|uplifting
+- night|Для ночи|Night|night,dark|ночь,ночные|dreamy,dark_mood
+- rain|Под дождь|Rainy day|rain,cozy|дождь,уют,осень|melancholic,calm
+- cooking|Для готовки и дома|Cooking & home|cozy,jazz|готовка,дом|jazz_cafe
+- gaming|Для игр|Gaming|gaming,electronic|игры,геймерская|videogame,energetic
+- meditation_ctx|Для медитации|Meditation|meditation|медитация,йога|calm
+- romance_ctx|Для свидания|Date night|romantic,jazz|свидание|romantic
+- travel|Для путешествий|Travel|travel,world|путешествия|driving
+@grp era era|Эпоха|Era
+- e50s|50-е|1950s|50s,oldies|50-е,пятидесятые|e60s
+- e60s|60-е|1960s|60s,oldies|60-е,шестидесятые|e70s
+- e70s|70-е|1970s|70s|70-е,семидесятые|e80s
+- e80s|80-е|1980s|80s,retro|80-е,восьмидесятые|e90s
+- e90s|90-е|1990s|90s|90-е,девяностые|e00s
+- e00s|2000-е|2000s|00s|2000-е,нулевые|e10s
+- e10s|2010-е|2010s|10s|2010-е|e20s
+- e20s|2020-е|2020s|20s|2020-е,новое|e10s
+@grp lang lang|Язык|Language
+- l_ru|Русский|Russian||русский|l_en|ru
+- l_en|Английский|English||английский|l_ru|en
+- l_es|Испанский|Spanish||испанский|l_pt|es
+- l_pt|Португальский|Portuguese||португальский|l_es|pt
+- l_fr|Французский|French||французский|l_it|fr
+- l_de|Немецкий|German||немецкий|l_en|de
+- l_it|Итальянский|Italian||итальянский|l_fr|it
+- l_ja|Японский|Japanese||японский|l_ko|ja
+- l_ko|Корейский|Korean||корейский|l_ja|ko
+- l_zh|Китайский|Chinese||китайский|l_ja|zh
+- l_tr|Турецкий|Turkish||турецкий||tr
+- l_pl|Польский|Polish||польский|l_ru|pl
+- l_inst|Без слов|Instrumental|instrumental|инструментальная,без слов,инструментал|post_rock,work_focus|

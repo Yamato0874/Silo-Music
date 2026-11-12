@@ -1,0 +1,22 @@
+# сборка и зависимости
+node_modules/
+dist/
+target/
+src-tauri/gen/
+# секреты и локальные данные
+.env
+.env.*
+*.pem
+*.key
+*.db
+*.db-journal
+*.sqlite
+backups/
+*.log
+v.out
+v.err
+# служебное
+.claude/
+.vscode/
+.idea/
+Thumbs.db
