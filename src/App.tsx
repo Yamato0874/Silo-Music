@@ -225,6 +225,17 @@ export default function App() {
   const skipRef = useRef(skip);
   skipRef.current = skip;
 
+  // команды из трея
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => listen<string>("tray", (e) => {
+      if (e.payload === "toggle") player.current?.toggle();
+      else if (e.payload === "next") skipRef.current(1);
+      else if (e.payload === "prev") skipRef.current(-1);
+    })).then((u) => (off = u));
+    return () => off?.();
+  }, []);
+
   // медиаклавиши и системные элементы управления (Media Session)
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;

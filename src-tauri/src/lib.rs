@@ -773,7 +773,34 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db = Db::open(&dir.join("silo.db")).map_err(|x| x.to_string())?;
             app.manage(App { db: Mutex::new(db), music_dir: dir.join("Music") });
+            // трей: музыка играет и при скрытом окне
+            use tauri::{menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter};
+            let toggle = MenuItem::with_id(app, "toggle", "Пауза / играть", true, None::<&str>)?;
+            let next = MenuItem::with_id(app, "next", "Следующий трек", true, None::<&str>)?;
+            let prev = MenuItem::with_id(app, "prev", "Предыдущий трек", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "Открыть Silo", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Выйти", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&toggle, &next, &prev, &show, &quit])?;
+            let show_main = |app: &tauri::AppHandle| { if let Some(w) = app.get_webview_window("main") { let _ = w.unminimize(); let _ = w.show(); let _ = w.set_focus(); } };
+            TrayIconBuilder::with_id("main")
+                .icon(app.default_window_icon().cloned().ok_or("нет иконки")?)
+                .tooltip("Silo Player")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |app, ev| match ev.id().as_ref() {
+                    "quit" => app.exit(0),
+                    "show" => show_main(app),
+                    id => { let _ = app.emit("tray", id.to_string()); }
+                })
+                .on_tray_icon_event(move |t, ev| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev { show_main(t.app_handle()); }
+                })
+                .build(app)?;
             Ok(())
+        })
+        // крестик прячет окно в трей, музыка продолжает играть; выход — из меню трея
+        .on_window_event(|w, ev| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
             get_setting, set_setting, open_url, link_track, artist_tracks, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
