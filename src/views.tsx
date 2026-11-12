@@ -26,7 +26,7 @@ export function Search() {
     const s = q.trim();
     if (s.length < 3) return;
     const h = setTimeout(() => go(undefined, true), 700);
-    const full = setTimeout(() => go(), 1500); // затем везде, включая YouTube (ответы кэшируются на 3 дня)
+    const full = setTimeout(() => go(), 1500); // затем везде, включая YouTube (ответы кэшируются на 14 дней)
     return () => { clearTimeout(h); clearTimeout(full); };
   }, [q]);
   const go = (o?: { tags: string[]; lang?: string }, auto = false, my = ++seq.n) =>

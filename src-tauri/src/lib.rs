@@ -70,6 +70,18 @@ fn yt_err(x: silo_core::Error) -> String {
     } else { m }
 }
 /// Поиск видео YouTube: сперва кэш (ttl секунд), затем сеть; при исчерпанной квоте сразу понятное сообщение без запроса.
+/// Треки жанра для «Эхо» почти без квоты: плейлист жанра ищется раз в 30 дней (100 ед.), его треки берутся за 1 ед. и кэшируются на 7 дней.
+async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str) -> R<Vec<Track>> {
+    let pl = yt_search_playlists(s, key, text, 30 * DAY).await?;
+    let Some(first) = pl.first() else { return Ok(vec![]) };
+    let id = first.id.trim_start_matches("youtube:").to_string();
+    let ck = format!("yt:pi:{id}");
+    if let Some(v) = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
+    if yt_blocked() { return Err(YT_QUOTA_MSG.into()); }
+    let v = youtube::playlist_items(key, &id).await.map_err(yt_err)?;
+    let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+    Ok(v)
+}
 async fn yt_search(s: &State<'_, App>, key: &str, q: &str, limit: u32, ttl: i64) -> R<Vec<Track>> {
     let ck = format!("yt:s:{limit}:{}", q.trim().to_lowercase());
     let hit = db(s).cache_get(&ck, ttl).map_err(e)?;
@@ -161,7 +173,7 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
     }
     if want("youtube") && !q.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) {
         let key = setting(&s, "youtube_api_key")?;
-        match yt_search(&s, &key, &q, 15, 3 * DAY).await {
+        match yt_search(&s, &key, &q, 15, 14 * DAY).await {
             Ok(v) => out.tracks.extend(v),
             Err(x) => out.errors.push(x),
         }
@@ -230,7 +242,7 @@ async fn search_playlists(s: State<'_, App>, query: String, sources: Vec<String>
     }
     if want("youtube") {
         let key = setting(&s, "youtube_api_key")?;
-        match yt_search_playlists(&s, &key, &query, 3 * DAY).await {
+        match yt_search_playlists(&s, &key, &query, 14 * DAY).await {
             Ok(v) => out.playlists.extend(v),
             Err(x) => out.errors.push(x),
         }
@@ -434,7 +446,7 @@ async fn echo_mix(
         // YouTube дорогой (100 ед. за поиск): только один жанр за подборку, результаты кэшируются на 3 суток;
         // при исчерпанной квоте тихо пропускаем (сообщение один раз)
         if pos == Some(0) && has_yt {
-            match yt_search(&s, &yt_key, &text, 10, 3 * DAY).await {
+            match yt_genre_tracks(&s, &yt_key, &text).await {
                 Ok(mut v) => { for t in &mut v { if t.tags.is_empty() { t.tags = qt.clone(); } } cand.extend(v); }
                 Err(x) => { if !out_info.errors.contains(&x) { out_info.errors.push(x); } }
             }
