@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silo Player: a music player for your PC</title>
+<meta name="description" content="Silo Player is a free, open-source desktop music player with an endless personal radio, search across Jamendo, YouTube and SoundCloud, and playlist import. Everything stays on your computer.">
+<link rel="icon" href="img/logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <img src="img/logo.png" alt="Silo Player logo">
+  <b>Silo Player</b>
+  <nav><a href="privacy.html">Privacy Policy</a><a href="terms.html">Terms of Use</a><a href="https://github.com/Yamato0874/silo-player">GitHub</a></nav>
+</header>
+<main>
+  <h1>A calm, fast music player for your PC</h1>
+  <p class="lead">Silo Player is a free, open-source desktop app that finds music across Jamendo, YouTube and SoundCloud, plays it in one place, and builds an endless personal radio called Echo that learns your taste. Your listening data never leaves your computer.</p>
+  <div class="btns">
+    <a class="btn primary" href="https://github.com/Yamato0874/silo-player">Source code on GitHub</a>
+    <a class="btn" href="privacy.html">Privacy Policy</a>
+  </div>
+
+  <div class="shots">
+    <img src="img/echo.png" alt="Echo, the endless personal radio" loading="lazy">
+    <img src="img/search.png" alt="Search across several music services" loading="lazy">
+    <img src="img/settings.png" alt="Taste and genre settings" loading="lazy">
+  </div>
+
+  <h2>What it does</h2>
+  <ul>
+    <li><b>One search</b> across your downloads, Jamendo, YouTube and SoundCloud, with the source shown on every track.</li>
+    <li><b>Echo</b>: an endless stream that adapts to what you finish, like and skip, and loads the next tracks ahead of time.</li>
+    <li><b>Playlist import</b> from M3U, PLS, CSV and JSON files, plain text lists, and public YouTube, SoundCloud and Jamendo playlist links.</li>
+    <li><b>Equalizer, gapless playback and crossfade</b> for free-licensed music from Jamendo and your own files.</li>
+    <li><b>Strict language filter</b>, 7 themes, Russian and English interface.</li>
+  </ul>
+
+  <h2>How it uses YouTube</h2>
+  <p>Silo Player uses the official <a href="https://developers.google.com/youtube/v3">YouTube Data API v3</a> only to search for videos and playlists, and plays them exclusively through the official <a href="https://developers.google.com/youtube/iframe_api_reference">YouTube IFrame Player API</a>. It never downloads, extracts, or modifies YouTube audio or video, and it does not bypass any YouTube feature. Search results are cached on the user's own computer for up to 3 days to reduce API use. By using the YouTube features you agree to the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>; see our <a href="privacy.html">Privacy Policy</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
+
+  <h2>Your own API keys</h2>
+  <p>Each user supplies their own free API keys (Jamendo, YouTube, SoundCloud). The app explains how to get them on first launch. Keys are stored only on the user's computer.</p>
+
+  <p class="ru">По-русски: Silo Player — бесплатный открытый музыкальный плеер для ПК. Все данные (история, оценки, плейлисты, ключи) хранятся только на вашем компьютере.</p>
+</main>
+<footer>
+  Silo Player is an independent open-source project (MIT License) and is not affiliated with Google, YouTube, SoundCloud or Jamendo. All trademarks belong to their owners.
+</footer>
+</body>
+</html>
