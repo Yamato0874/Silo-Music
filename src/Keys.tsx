@@ -85,6 +85,8 @@ export default function Keys({ lang, onSaved, saveLabel }: { lang: L; onSaved?: 
   useEffect(() => { [...ALL_KEYS, ...EXTRA].forEach((k) => api.getSetting(k).then((x) => setV((o) => ({ ...o, [k]: x }))).catch(() => {})); }, []);
   const modeOf = (id: string) => v["mode_" + id] || (SERVICES.find((s) => s.id === id)!.fields.every((f) => (v[f.key] ?? "").trim()) ? "api" : "link");
   const set = (k: string, x: string) => { setV({ ...v, [k]: x }); setOk(false); };
+  // режим сохраняется сразу, без кнопки «Сохранить»
+  const setMode = (id: string, m: string) => { setV({ ...v, ["mode_" + id]: m }); api.setSetting("mode_" + id, m).catch((x) => setErr(String(x))); };
   const submit = (e: FormEvent) => {
     e.preventDefault();
     Promise.all([...ALL_KEYS.map((k) => api.setSetting(k, v[k] ?? "")), ...MODE_SVC.map((m) => api.setSetting("mode_" + m, modeOf(m)))]).then(() => { setOk(true); setErr(""); onSaved?.(); }).catch((x) => setErr(String(x)));
@@ -100,8 +102,8 @@ export default function Keys({ lang, onSaved, saveLabel }: { lang: L; onSaved?: 
           {s.note && <p className="muted">{s.note[i]}</p>}
           {MODE_SVC.includes(s.id) && (
             <div className="chips" style={{ margin: "6px 0" }}>
-              <Btn variant="chip" size="sm" active={modeOf(s.id) === "link"} onClick={() => set("mode_" + s.id, "link")}>{i ? "By link (no key)" : "По ссылке (без ключа)"}</Btn>
-              <Btn variant="chip" size="sm" active={modeOf(s.id) === "api"} onClick={() => set("mode_" + s.id, "api")}>{i ? "Via API (search)" : "Через API (поиск)"}</Btn>
+              <Btn variant="chip" size="sm" active={modeOf(s.id) === "link"} onClick={() => setMode(s.id, "link")}>{i ? "By link (no key)" : "По ссылке (без ключа)"}</Btn>
+              <Btn variant="chip" size="sm" active={modeOf(s.id) === "api"} onClick={() => setMode(s.id, "api")}>{i ? "Via API (search)" : "Через API (поиск)"}</Btn>
             </div>
           )}
           {MODE_SVC.includes(s.id) && modeOf(s.id) === "link" && <p className="muted">{i ? "Paste a track link into Search: it plays inside the app." : "Вставьте ссылку на трек в Поиск: он заиграет внутри приложения."}</p>}
