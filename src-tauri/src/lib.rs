@@ -73,7 +73,9 @@ fn yt_err(x: silo_core::Error) -> String {
 /// Треки жанра для «Эхо» почти без квоты: плейлист жанра ищется раз в 30 дней (100 ед.), его треки берутся за 1 ед. и кэшируются на 7 дней.
 /// Волна: похожие исполнители + жанр (или вкус, если поиски кончились).
 async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str, region: &str) -> R<Vec<Track>> {
+    // лимит поисков берегём, а обычных запросов (10 000 в день) хватает: каналы из лайков подмешиваем всегда
     let mut v = yt_similar_tracks(s, key).await;
+    v.extend(yt_taste_tracks(s, key, region).await.unwrap_or_default());
     v.extend(yt_genre_core(s, key, text, region).await?);
     Ok(v)
 }
@@ -115,7 +117,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str) -> Vec<Track> {
     // берём 8 похожих по кругу; новых (без кэша) ищем не больше 3 за раз, чтобы беречь лимит поисков
     let mut out = vec![];
     let mut fresh = 0;
-    for k in 0..sim.len().min(8) {
+    for k in 0..sim.len().min(20) {
         let a = &sim[(n / 13 + k * 3) % sim.len()];
         let ck = format!("yt:art:{}", a.to_lowercase());
         let hit: Option<Vec<Track>> = db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
@@ -184,7 +186,7 @@ async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<T
         };
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
         let mut picked: Vec<Track> = vec![];
-        for k in 0..chans.len().min(8) {
+        for k in 0..chans.len().min(25) {
             let c = &chans[(n + k) % chans.len()];
             let Some(rest) = c.strip_prefix("UC") else { continue };
             let pl = format!("UU{rest}");
@@ -198,7 +200,7 @@ async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<T
                     Err(_) => vec![],
                 },
             };
-            picked.extend(items.into_iter().take(6));
+            picked.extend(items.into_iter().take(10));
         }
         youtube::cap_artist(&mut picked, 3);
         out.extend(picked);
