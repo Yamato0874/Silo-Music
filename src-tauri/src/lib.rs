@@ -76,7 +76,7 @@ async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str, region: &str
     // лимит поисков берегём, а обычных запросов (10 000 в день) хватает: каналы из лайков подмешиваем всегда
     // порядок важен: сначала любимые и похожие, затем каналы из лайков, жанр и только потом популярное
     let mut v = yt_similar_tracks(s, key, fav).await;
-    v.extend(yt_taste_tracks(s, key, region, v.len() < 15).await.unwrap_or_default());
+    v.extend(yt_taste_tracks(s, key, region, false).await.unwrap_or_default());
     if v.len() < 30 { v.extend(yt_genre_core(s, key, text, region).await?); }
     Ok(v)
 }
@@ -160,7 +160,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str, fav: &[String]) -> Vec
 async fn yt_genre_core(s: &State<'_, App>, key: &str, text: &str, region: &str) -> R<Vec<Track>> {
     // лимит поисков исчерпан или плейлист не нашёлся: берём популярную музыку (1 ед., другой лимит)
     let pl = yt_search_playlists(s, key, text, 30 * DAY).await.unwrap_or_default();
-    let Some(first) = pl.first() else { return yt_taste_tracks(s, key, region, true).await };
+    let Some(first) = pl.first() else { return yt_taste_tracks(s, key, region, false).await };
     let id = first.id.trim_start_matches("youtube:").to_string();
     let ck = format!("yt:pm:{id}");
     let hit = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok());
@@ -175,7 +175,7 @@ async fn yt_genre_core(s: &State<'_, App>, key: &str, text: &str, region: &str) 
         }
     };
     // в плейлисте одни часовые миксы или он недоступен: берём по вкусу и популярное
-    if v.len() < 5 { let mut t = yt_taste_tracks(s, key, region, true).await?; t.extend(v); return Ok(t); }
+    if v.len() < 5 { let mut t = yt_taste_tracks(s, key, region, false).await?; t.extend(v); return Ok(t); }
     Ok(v)
 }
 /// Популярная музыка на YouTube в стране языка, кэш на сутки.
@@ -227,7 +227,7 @@ async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str, with_chart
         out.extend(picked);
     }
     // популярное — только если по вкусу набралось мало
-    if with_chart || out.len() < 15 { if let Ok(mut v) = yt_chart(s, key, region).await { youtube::cap_artist(&mut v, 2); out.extend(v); } }
+    if with_chart { if let Ok(mut v) = yt_chart(s, key, region).await { youtube::cap_artist(&mut v, 2); out.extend(v); } }
     Ok(out)
 }
 async fn yt_search(s: &State<'_, App>, key: &str, q: &str, limit: u32, ttl: i64) -> R<Vec<Track>> {
@@ -666,6 +666,9 @@ async fn echo_mix(
     out_info.tracks = echo::compose(&slots, &pool, &played, &rated);
     // шире: не больше двух треков одного исполнителя за подборку
     youtube::cap_artist(&mut out_info.tracks, 2);
+    if out_info.tracks.is_empty() && yt_blocked() {
+        return Err("Поиски YouTube на сегодня кончились, поэтому волна не может найти твои жанры и исполнителей. Соберётся после 11:00 по Москве, а уже найденное запоминается на месяц.".into());
+    }
     Ok(out_info)
 }
 #[derive(serde::Serialize, Default)]
