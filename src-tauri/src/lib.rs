@@ -187,6 +187,29 @@ async fn search_playlists(s: State<'_, App>, query: String, sources: Vec<String>
     }
     Ok(out)
 }
+/// Ссылка SoundCloud (трек или плейлист) без ключей API: название и обложка из oEmbed, играет встроенный плеер.
+#[tauri::command]
+async fn link_track(url: String) -> R<Track> {
+    let u = url.trim().split('?').next().unwrap_or("").trim_end_matches('/').to_string();
+    let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://")).ok_or("нужна ссылка, начинающаяся с https://")?;
+    let host = rest.split('/').next().unwrap_or("").trim_start_matches("www.").trim_start_matches("m.");
+    if host != "soundcloud.com" && host != "on.soundcloud.com" { return Err("это не ссылка SoundCloud".into()); }
+    let r = reqwest::Client::new().get("https://soundcloud.com/oembed").query(&[("format", "json"), ("url", u.as_str())]).send().await.map_err(e)?;
+    if !r.status().is_success() { return Err("SoundCloud не нашёл трек по этой ссылке (он удалён или закрыт)".into()); }
+    let v: serde_json::Value = r.json().await.map_err(e)?;
+    let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
+    let (title, artist) = (s("title"), s("author_name"));
+    let name = title.strip_suffix(&format!(" by {artist}")).unwrap_or(&title).to_string();
+    // короткая ссылка on.soundcloud.com: настоящий адрес берём из html виджета
+    let real = s("html").split("url=").nth(1).and_then(|x| x.split('&').next()).map(|x| x.replace("%3A", ":").replace("%2F", "/"))
+        .filter(|x| x.starts_with("https://api.soundcloud.com/")).unwrap_or(u.clone());
+    Ok(Track {
+        id: format!("soundcloud:link:{}", rest.trim_start_matches(host).trim_start_matches('/')),
+        source: "soundcloud".into(), kind: "music".into(), url: real, name, artist, album: String::new(),
+        image: s("thumbnail_url"), audio: String::new(), download_url: String::new(), download_allowed: false,
+        duration: 0, tags: vec![], license_url: u, pop: 0.0,
+    })
+}
 /// Открыть подборку: id вида "youtube:PL…", "soundcloud:123", "jamendo:45".
 #[tauri::command]
 async fn open_playlist(s: State<'_, App>, id: String, lang: Option<String>) -> R<Vec<Track>> {
@@ -497,7 +520,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_setting, set_setting, open_url, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
+            get_setting, set_setting, open_url, link_track, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
             create_playlist, delete_playlist, playlist_tracks, add_to_playlist,
             remove_from_playlist, list_downloads, download_track
         ])

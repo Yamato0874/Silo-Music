@@ -12,7 +12,7 @@ import Keys from "./Keys";
 const toggle = <T,>(v: T[], x: T) => (v.includes(x) ? v.filter((y) => y !== x) : [...v, x]);
 
 export function Search() {
-  const { onError, prefs } = useApp();
+  const { onError, prefs, play } = useApp();
   const [q, setQ] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [lang, setLang] = useState("");
@@ -21,7 +21,9 @@ export function Search() {
   const [warn, setWarn] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
   const go = (o?: { tags: string[]; lang?: string }) =>
-    api.searchAll({ query: o ? "" : q, tags: o ? o.tags : tags, lang: (o ? o.lang : lang) || undefined, offset: 0, limit: 20,
+    !o && /^https?:\/\/(www\.|m\.|on\.)?soundcloud\.com\//i.test(q.trim())
+      ? api.linkTrack(q.trim()).then((tr) => { setRes([tr]); setWarn([]); setSearched(true); play([tr], 0); }).catch((e) => onError(String(e)))
+      : api.searchAll({ query: o ? "" : q, tags: o ? o.tags : tags, lang: (o ? o.lang : lang) || undefined, offset: 0, limit: 20,
       sources: o ? ["jamendo"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
       .then((r) => { setRes(r.tracks); setWarn(r.errors); setSearched(true); }).catch((e) => onError(String(e)));
   return (

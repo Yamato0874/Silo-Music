@@ -8,7 +8,7 @@ const D = {
   search: ["Поиск", "Search"], browse: ["Подборки", "Playlists"], echo: ["Эхо", "Echo"],
   liked: ["Понравившиеся", "Liked"], banned: ["Бан", "Banned"], history: ["История", "History"], playlists: ["Мои плейлисты", "My playlists"],
   downloads: ["Загрузки", "Downloads"], settings: ["Настройки", "Settings"],
-  searchPlaceholder: ["Трек, исполнитель, альбом…", "Track, artist, album…"], find: ["Найти", "Search"],
+  searchPlaceholder: ["Трек, исполнитель или ссылка SoundCloud…", "Track, artist or SoundCloud link…"], find: ["Найти", "Search"],
   language: ["Язык текста", "Lyrics language"], anyLang: ["Любой", "Any"], sourcesLabel: ["Источники", "Sources"],
   noDownload: ["Скачивание запрещено автором", "Download not allowed by the author"],
   addToPlaylist: ["В плейлист…", "Add to playlist…"], newPlaylist: ["Новый плейлист", "New playlist"],
