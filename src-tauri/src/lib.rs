@@ -140,11 +140,19 @@ async fn yt_genre_core(s: &State<'_, App>, key: &str, text: &str, region: &str) 
     let Some(first) = pl.first() else { return yt_taste_tracks(s, key, region).await };
     let id = first.id.trim_start_matches("youtube:").to_string();
     let ck = format!("yt:pm:{id}");
-    if let Some(v) = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
-    let v = youtube::playlist_items(key, &id).await.map_err(e)?;
-    let mut v = youtube::keep_music(key, v).await.unwrap_or_default();
-    youtube::cap_artist(&mut v, 3);
-    let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+    let hit = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok());
+    let v = match hit {
+        Some(v) => v,
+        None => {
+            let v = youtube::playlist_items(key, &id).await.unwrap_or_default();
+            let mut v = youtube::keep_music(key, v).await.unwrap_or_default();
+            youtube::cap_artist(&mut v, 3);
+            let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+            v
+        }
+    };
+    // в плейлисте одни часовые миксы или он недоступен: берём по вкусу и популярное
+    if v.len() < 5 { let mut t = yt_taste_tracks(s, key, region).await?; t.extend(v); return Ok(t); }
     Ok(v)
 }
 /// Популярная музыка на YouTube в стране языка, кэш на сутки.
