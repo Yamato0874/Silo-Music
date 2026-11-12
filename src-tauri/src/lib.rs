@@ -31,7 +31,7 @@ fn download_dir(s: &State<App>) -> R<PathBuf> {
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
 }
 
-const KEYS: [&str; 6] = ["prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret"];
+const KEYS: [&str; 10] = ["prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx"];
 
 #[tauri::command]
 fn get_setting(s: State<App>, key: String) -> R<String> {
