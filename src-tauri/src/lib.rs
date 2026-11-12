@@ -173,7 +173,7 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
     }
     if want("youtube") && !q.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) {
         let key = setting(&s, "youtube_api_key")?;
-        match yt_search(&s, &key, &q, 15, 14 * DAY).await {
+        match yt_search(&s, &key, &q, 15, 30 * DAY).await {
             Ok(v) => out.tracks.extend(v),
             Err(x) => out.errors.push(x),
         }
@@ -242,7 +242,7 @@ async fn search_playlists(s: State<'_, App>, query: String, sources: Vec<String>
     }
     if want("youtube") {
         let key = setting(&s, "youtube_api_key")?;
-        match yt_search_playlists(&s, &key, &query, 14 * DAY).await {
+        match yt_search_playlists(&s, &key, &query, 30 * DAY).await {
             Ok(v) => out.playlists.extend(v),
             Err(x) => out.errors.push(x),
         }
