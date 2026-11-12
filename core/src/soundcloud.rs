@@ -42,7 +42,7 @@ pub fn parse(body: &str) -> Result<Vec<Track>> {
 }
 
 async fn token(id: &str, secret: &str) -> Result<String> {
-    let v: Value = reqwest::Client::new()
+    let v: Value = crate::http()
         .post("https://secure.soundcloud.com/oauth/token")
         .form(&[("grant_type", "client_credentials"), ("client_id", id), ("client_secret", secret)])
         .send()
@@ -57,7 +57,7 @@ pub async fn search(client_id: &str, client_secret: &str, query: &str, limit: u3
         return Err(Error::Msg("не указаны ключи SoundCloud (Настройки)".into()));
     }
     let tok = token(client_id.trim(), client_secret.trim()).await?;
-    let body = reqwest::Client::new()
+    let body = crate::http()
         .get("https://api.soundcloud.com/tracks")
         .header("Authorization", format!("OAuth {tok}"))
         .query(&[("q", query), ("limit", &limit.clamp(1, 50).to_string()), ("access", "playable")])
@@ -73,7 +73,7 @@ async fn api_get(client_id: &str, client_secret: &str, path: &str, q: &[(&str, &
         return Err(Error::Msg("не указаны ключи SoundCloud (Настройки)".into()));
     }
     let tok = token(client_id.trim(), client_secret.trim()).await?;
-    Ok(reqwest::Client::new()
+    Ok(crate::http()
         .get(format!("https://api.soundcloud.com/{path}"))
         .header("Authorization", format!("OAuth {tok}"))
         .query(q)

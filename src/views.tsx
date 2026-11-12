@@ -40,7 +40,7 @@ export function Search() {
     !o &&/^https?:\/\/(www\.|m\.|on\.|music\.)?(soundcloud\.com|youtube\.com|youtu\.be)\//i.test(q.trim())
       ? api.linkTrack(q.trim()).then((tr) => { setRes([tr]); setWarn([]); setSearched(true); play([tr], 0); }).catch((e) => onError(String(e)))
       : api.searchAll({ query: o ? "" : q, tags: o ? o.tags : tags, lang: (o ? o.lang : lang) || undefined, offset: 0, limit: 20,
-      sources: o ? ["jamendo"] : auto ? ["local", "jamendo"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
+      sources: !navigator.onLine ? ["local"] : o ? ["jamendo"] : auto ? ["local", "jamendo"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
       .then((r) => { if (my !== seq.n) return; setRes(r.tracks); setWarn(r.errors); setSearched(true); }).catch((e) => onError(String(e)));
   return (
     <>
@@ -238,6 +238,7 @@ export function Home() {
           </div>
         </div>
       )}
+      <HomeExtras />
       <Stats />
     </>
   );
@@ -305,6 +306,15 @@ export function Playlists() {
   const { play } = useApp();
   const { refreshPlaylists } = useApp();
   const refresh = () => { refreshPlaylists(); return api.playlists().then(setPls); };
+  const [virt, setVirt] = useState("");
+  // умные плейлисты: собираются сами из истории, оценок и скачанного
+  const smart = async (k: string) => {
+    setSel(null); setVirt(k);
+    if (k === t.smartTop) setTracks((await api.stats()).all.tracks.map((x) => x.track));
+    else if (k === t.smartLiked) setTracks(await api.liked());
+    else if (k === t.smartDl) setTracks((await api.downloads()).map(([x]) => x));
+    else { const recent = new Set((await api.history()).slice(0, 300).map((x) => x.id)); setTracks((await api.liked()).filter((x) => !recent.has(x.id))); }
+  };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { if (sel) api.playlistTracks(sel.id).then(setTracks); }, [sel]);
   return (
@@ -314,10 +324,12 @@ export function Playlists() {
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t.newPlaylist} />
           <Btn type="submit" variant="solid">{t.create}</Btn>
         </form>
+        <p className="muted">{t.smart}</p>
+        <ul className="pls">{[t.smartTop, t.smartForgot, t.smartLiked, t.smartDl].map((k) => <li key={k} className={virt === k && !sel ? "active" : ""}><button className="pl-name" onClick={() => smart(k)}>{k}</button></li>)}</ul>
         <ul className="pls">
           {pls.map((pl) => (
             <li key={pl.id} className={sel?.id === pl.id ? "active" : ""}>
-              <button className="pl-name" onClick={() => setSel(pl)}>{pl.name} <small>{pl.count}</small></button>
+              <button className="pl-name" onClick={() => { setVirt(""); setSel(pl); }}>{pl.name} <small>{pl.count}</small></button>
               <Btn icon="close" size="sm" label={t.deletePlaylist}
                 onClick={() => api.deletePlaylist(pl.id).then(() => { if (sel?.id === pl.id) { setSel(null); setTracks([]); } refresh(); })} />
             </li>
@@ -333,6 +345,7 @@ export function Playlists() {
             <Btn icon="play" variant="primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>{t.playAll}</Btn>
           </div>
         )}
+        {!sel && virt && <><div className="row head"><div className="title"><b>{virt}</b></div><Btn icon="play" variant="primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>{t.playAll}</Btn></div><TrackList tracks={tracks} /></>}
         {sel && <TrackList tracks={tracks} onRemove={(tr) => api.removeFromPlaylist(sel.id, tr.id).then(() => api.playlistTracks(sel.id).then(setTracks))} />}
       </div>
     </div>
@@ -356,7 +369,7 @@ export function Settings() {
     api.getSetting("download_dir").then(setDir);
     api.downloadsInfo().then(setInfo);
   }, []);
-  const Check = ({ k, label }: { k: "autoplay" | "gapless" | "normalize" | "eqOn" | "showVideo" | "langStrict"; label: string }) => (
+  const Check = ({ k, label }: { k: "autoplay" | "gapless" | "normalize" | "eqOn" | "showVideo" | "langStrict" | "notify" | "autostart" | "eqAuto"; label: string }) => (
     <label className="chk"><input type="checkbox" checked={prefs[k]} onChange={(e) => setPrefs({ [k]: e.target.checked })} /> {label}</label>
   );
   return (
@@ -405,6 +418,11 @@ export function Settings() {
       <Check k="eqOn" label={t.eqOn} />
       <Check k="showVideo" label={t.showVideo} />
       <Check k="langStrict" label={t.langStrict} />
+      <Check k="eqAuto" label={t.eqAutoOpt} />
+      <Check k="notify" label={t.notifyOpt} />
+      <Check k="autostart" label={t.autostartOpt} />
+      <p className="muted">{t.globalKeys}</p>
+      <Backup />
       {prefs.eqOn && (
         <>
           <div className="eq">
@@ -491,5 +509,72 @@ export function Stats() {
       {x.artists.length > 0 && <div className="chips"><span className="muted">{t.topArtists}:</span>{x.artists.map(([a, n]) => <Btn key={a} variant="chip" size="sm" onClick={() => openArtist(a)}>{a} · {n}</Btn>)}</div>}
       {x.tracks.length > 0 && <><p className="muted">{t.topTracks}</p><ol className="top">{x.tracks.map((r, i) => <li key={r.track.id}><a className="artist-link" onClick={() => play(x.tracks.map((z) => z.track), i)}>{r.track.name}</a> <span className="muted">{r.track.artist} · {r.plays}</span></li>)}</ol></>}
     </section>
+  );
+}
+
+/** Резервная копия: настройки, плейлисты, лайки и баны в один файл (без ключей сервисов) и восстановление из него. */
+function Backup() {
+  const { onError, setPrefs, refreshPlaylists } = useApp();
+  const exp = async () => {
+    const pls = await api.playlists();
+    const data = { app: "silo", v: 1, prefs: JSON.parse((await api.getSetting("prefs")) || "{}"), liked: await api.liked(), banned: await api.banned(),
+      playlists: await Promise.all(pls.map(async (p) => ({ name: p.name, tracks: await api.playlistTracks(p.id) }))) };
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
+    a.download = "silo-backup-" + new Date().toISOString().slice(0, 10) + ".json"; a.click();
+  };
+  const imp = (f: File) => f.text().then(async (txt) => {
+    const d = JSON.parse(txt);
+    if (d.app !== "silo") throw new Error("не файл копии Silo");
+    for (const tr of d.liked ?? []) await api.rate(tr, 1);
+    for (const tr of d.banned ?? []) await api.rate(tr, -2);
+    for (const pl of d.playlists ?? []) await api.savePlaylist(pl.name, pl.tracks);
+    if (d.prefs) setPrefs(d.prefs);
+    refreshPlaylists(); onError(t.backupDone);
+  }).catch((x) => onError(String(x)));
+  return (
+    <>
+      <h3>{t.backup}</h3>
+      <div className="row" style={{ gap: 8 }}>
+        <Btn onClick={() => exp().catch((x) => onError(String(x)))}>{t.backupExport}</Btn>
+        <label className="btn">{t.backupImport}<input type="file" accept=".json" hidden onChange={(e) => e.target.files?.[0] && imp(e.target.files[0])} /></label>
+      </div>
+    </>
+  );
+}
+
+/** Главная: волны под настроение и занятие, плейлист дня и открытия недели. */
+const MOODS: [string, string, string][] = [["work_focus", "Работа", "Work"], ["workout", "Спорт", "Workout"], ["night", "Вечер", "Evening"], ["sleep", "Сон", "Sleep"], ["energetic", "Бодрое", "Upbeat"], ["sad", "Грустное", "Sad"], ["romantic", "Романтика", "Romantic"], ["driving", "В дорогу", "Driving"]];
+export function HomeExtras() {
+  const { startWave, prefs, play, onError } = useApp();
+  const [daily, setDaily] = useState<Track[]>([]);
+  const [disc, setDisc] = useState<Track[]>([]);
+  const day = new Date().toISOString().slice(0, 10);
+  const week = (() => { const d = new Date(); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })();
+  const build = async (force = false) => {
+    const saved = JSON.parse((await api.getSetting("daily").catch(() => "")) || "{}");
+    if (!force && saved.day === day && saved.tracks?.length) { setDaily(saved.tracks); } else {
+      const r = await api.echoMixFull(qualityFormat(prefs.quality), seedFor(prefs.tastes, prefs.artists), prefs.diversity, prefs.langStrict);
+      setDaily(r.tracks); saved.day = day; saved.tracks = r.tracks;
+    }
+    if (!force && saved.week === week && saved.disc?.length) { setDisc(saved.disc); } else {
+      // открытия: только исполнители, которых ещё не было в истории
+      const heard = new Set((await api.history()).map((x) => x.artist.toLowerCase()));
+      const r = await api.echoMixFull(qualityFormat(prefs.quality), seedFor(prefs.tastes, []), "discovery", prefs.langStrict);
+      const d = r.tracks.filter((x) => !heard.has(x.artist.toLowerCase()));
+      setDisc(d); saved.week = week; saved.disc = d;
+    }
+    api.setSetting("daily", JSON.stringify(saved)).catch(() => {});
+  };
+  useEffect(() => { build().catch(() => {}); }, []);
+  return (
+    <>
+      <section>
+        <h4 className="shelf-t">{t.moods}</h4>
+        <div className="chips">{MOODS.map(([id, ru, en]) => <Btn key={id} variant="chip" onClick={() => startWave([id, ...prefs.tastes.slice(0, 2)])}>{prefs.lang === "en" ? en : ru}</Btn>)}</div>
+      </section>
+      {daily.length > 0 && <section><div className="row head"><h4 className="shelf-t">{t.daily}</h4><Btn size="sm" onClick={() => play(daily, 0)}>{t.playAll}</Btn><Btn size="sm" onClick={() => build(true).catch((x) => onError(String(x)))}>{t.refresh}</Btn></div><TrackList tracks={daily.slice(0, 10)} /></section>}
+      {disc.length > 0 && <section><div className="row head"><h4 className="shelf-t">{t.discover}</h4><Btn size="sm" onClick={() => play(disc, 0)}>{t.playAll}</Btn></div><TrackList tracks={disc.slice(0, 10)} /></section>}
+    </>
   );
 }

@@ -6,7 +6,7 @@ import { DEFAULTS, Prefs, isTheme, qualityFormat } from "./prefs";
 import Player, { PlayerHandle, holdNext } from "./Player";
 import { psGet, psSet, usePs } from "./psStore";
 import { RateButtons } from "./TrackList";
-import { migrateTastes, seedFor } from "./tastes";
+import { eqOf, migrateTastes, searchNodes, seedFor } from "./tastes";
 import { Artist, Banned, Browse, Downloads, Echo, History, Home, Liked, Playlists, Search, Settings } from "./views";
 import { Btn } from "./ui";
 import Titlebar from "./Titlebar";
@@ -199,7 +199,25 @@ export default function App() {
   const nextIdx = nextPos(false);
   const nextTrack = pos >= 0 && nextIdx >= 0 && prefs.repeat !== "one" ? queue[order[nextIdx]] : undefined;
 
-  const record = (fraction: number) => { const c = S.current.cur; if (c) api.recordPlay(c, fraction).catch(() => {}); };
+  const record = (fraction: number) => { const c = S.current.cur; if (c) { api.recordPlay(c, fraction).catch(() => {}); if (fraction >= 0.5) api.scrobble(c).catch(() => {}); } };
+  // офлайн-режим: плашка вместо россыпи ошибок
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => { const on = () => setOnline(true), off = () => setOnline(false); window.addEventListener("online", on); window.addEventListener("offline", off); return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); }; }, []);
+  // автозапуск с Windows
+  useEffect(() => { if (loaded) api.setAutostart(prefs.autostart).catch(() => {}); }, [prefs.autostart, loaded]);
+  // перетащить аудиофайлы в окно — играют сразу
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => getCurrentWebview().onDragDropEvent((e) => {
+      if (e.payload.type !== "drop") return;
+      const files = e.payload.paths.filter((x) => /\.(mp3|flac|ogg|opus|m4a|wav|aac)$/i.test(x));
+      if (!files.length) return;
+      const list: Track[] = files.map((f) => { const n = f.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, ""); const [a, b] = n.includes(" - ") ? n.split(" - ", 2) : ["", n];
+        return { id: "local:file:" + f, source: "local", kind: "music", url: "", name: b.trim(), artist: a.trim(), album: "", image: "", audio: f, downloadUrl: "", downloadAllowed: false, duration: 0, tags: [], licenseUrl: "" }; });
+      play(list, 0);
+    })).then((u) => (off = u)).catch(() => {});
+    return () => off?.();
+  }, []);
 
   /** Подгрузить следующую порцию «Эхо» в конец очереди. Возвращает, сколько новых треков добавлено. */
   const extendWave = async (): Promise<number> => {
@@ -312,6 +330,11 @@ export default function App() {
     const title = cur ? cur.name + " — " + cur.artist : "Silo Player";
     document.title = title;
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setTitle(title)).catch(() => {});
+    // уведомление, когда окно свёрнуто или в трее
+    if (cur && document.hidden && S.current.prefs.notify) api.notify(cur.name, cur.artist).catch(() => {});
+    // эквалайзер под жанр трека
+    const pf = S.current.prefs;
+    if (cur && pf.eqAuto && pf.eqOn) { for (const tg of cur.tags) { const n = searchNodes(tg, 1)[0]; const eq = n && eqOf(n.id); if (eq) { setPrefs({ eq }); break; } } }
     if (cur && "mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: cur.name, artist: cur.artist, album: cur.album, artwork: cur.image ? [{ src: cur.image }] : [] });
   }, [cur?.id]);
 
@@ -348,6 +371,7 @@ export default function App() {
           {TABS.map((k) => <Btn key={k} variant="nav" active={tab === k} onClick={() => { setTab(k); setErr(""); }}>{t[k]}{k === "echo" && wave ? " ●" : ""}</Btn>)}
         </nav>
         <main>
+          {!online && <div className="notice">{t.offline}</div>}
           {err && <div className="err" onClick={() => setErr("")}>{err}</div>}
           <Suspense fallback={null}><View /></Suspense>
         </main>

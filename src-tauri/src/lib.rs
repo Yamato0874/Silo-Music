@@ -31,7 +31,7 @@ fn download_dir(s: &State<App>) -> R<PathBuf> {
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
 }
 
-const KEYS: [&str; 12] = ["prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
+const KEYS: [&str; 14] = ["daily", "listenbrainz_token", "prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
 
 #[tauri::command]
 fn get_setting(s: State<App>, key: String) -> R<String> {
@@ -276,7 +276,7 @@ async fn search_tracks(s: State<'_, App>, params: SearchParams) -> R<Vec<Track>>
 async fn cse_search(key: &str, cx: &str, q: &str, yt: bool, sc: bool) -> R<Vec<Track>> {
     let sites = [(yt, "site:youtube.com"), (sc, "site:soundcloud.com")].iter().filter(|x| x.0).map(|x| x.1).collect::<Vec<_>>().join(" OR ");
     let query = format!("{q} ({sites})");
-    let r = reqwest::Client::new().get("https://www.googleapis.com/customsearch/v1")
+    let r = silo_core::http().get("https://www.googleapis.com/customsearch/v1")
         .query(&[("key", key), ("cx", cx), ("q", query.as_str()), ("num", "10")]).send().await.map_err(e)?;
     let ok = r.status().is_success();
     let v: serde_json::Value = r.json().await.map_err(e)?;
@@ -414,7 +414,7 @@ async fn link_track(url: String) -> R<Track> {
             .or_else(|| rest.split("/shorts/").nth(1).map(|x| x.split('/').next().unwrap_or("").to_string()))
             .filter(|v| !v.is_empty()).ok_or("в ссылке YouTube нет видео")?;
         let page = format!("https://www.youtube.com/watch?v={vid}");
-        let v: serde_json::Value = reqwest::Client::new().get("https://www.youtube.com/oembed").query(&[("format", "json"), ("url", page.as_str())])
+        let v: serde_json::Value = silo_core::http().get("https://www.youtube.com/oembed").query(&[("format", "json"), ("url", page.as_str())])
             .send().await.map_err(e)?.json().await.map_err(|_| "YouTube не отдаёт это видео (закрыто или удалено)".to_string())?;
         let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
         return Ok(Track {
@@ -424,7 +424,7 @@ async fn link_track(url: String) -> R<Track> {
         });
     }
     if host != "soundcloud.com" && host != "on.soundcloud.com" { return Err("поддерживаются ссылки YouTube и SoundCloud".into()); }
-    let r = reqwest::Client::new().get("https://soundcloud.com/oembed").query(&[("format", "json"), ("url", u.as_str())]).send().await.map_err(e)?;
+    let r = silo_core::http().get("https://soundcloud.com/oembed").query(&[("format", "json"), ("url", u.as_str())]).send().await.map_err(e)?;
     if !r.status().is_success() { return Err("SoundCloud не нашёл трек по этой ссылке (он удалён или закрыт)".into()); }
     let v: serde_json::Value = r.json().await.map_err(e)?;
     let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
@@ -489,6 +489,29 @@ fn stats(s: State<App>) -> R<serde_json::Value> {
         out.insert(key.into(), serde_json::json!({ "hours": (secs / 360.0).round() / 10.0, "artists": a, "tracks": t.into_iter().map(|(t, n)| serde_json::json!({ "track": t, "plays": n })).collect::<Vec<_>>() }));
     }
     Ok(serde_json::Value::Object(out))
+}
+/// Уведомление о смене трека (когда окно свёрнуто или спрятано в трей).
+#[tauri::command]
+fn notify(app: tauri::AppHandle, title: String, body: String) -> R<()> {
+    use tauri_plugin_notification::NotificationExt;
+    app.notification().builder().title(title).body(body).show().map_err(e)
+}
+/// Автозапуск вместе с Windows (окно стартует спрятанным в трей).
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, on: bool) -> R<()> {
+    use tauri_plugin_autostart::ManagerExt;
+    let m = app.autolaunch();
+    if on { m.enable().map_err(e) } else { m.disable().map_err(e) }
+}
+/// Скробблинг в ListenBrainz: только если человек сам вписал свой токен.
+#[tauri::command]
+async fn scrobble(s: State<'_, App>, track: Track) -> R<()> {
+    let token = setting(&s, "listenbrainz_token")?;
+    if token.trim().is_empty() { return Ok(()); }
+    let body = serde_json::json!({ "listen_type": "single", "payload": [{ "listened_at": now_s(),
+        "track_metadata": { "artist_name": track.artist.trim_end_matches(" - Topic"), "track_name": track.name, "additional_info": { "origin_url": track.url, "media_player": "Silo Player" } } }] });
+    let r = silo_core::http().post("https://api.listenbrainz.org/1/submit-listens").header("Authorization", format!("Token {}", token.trim())).json(&body).send().await.map_err(e)?;
+    if r.status().is_success() { Ok(()) } else { Err(format!("ListenBrainz: {}", r.status())) }
 }
 /// Открыть подборку: id вида "youtube:PL…", "soundcloud:123", "jamendo:45".
 #[tauri::command]
@@ -776,19 +799,18 @@ async fn download_track(s: State<'_, App>, track: Track) -> R<String> {
     if !track.download_allowed || track.download_url.is_empty() {
         return Err("Автор не разрешил скачивание этого трека".into());
     }
-    let bytes = reqwest::get(&track.download_url)
-        .await
-        .map_err(e)?
-        .error_for_status()
-        .map_err(e)?
-        .bytes()
-        .await
-        .map_err(e)?;
+    // скачиваем потоком: большой FLAC не держится целиком в памяти
+    let mut resp = silo_core::http().get(&track.download_url).send().await.map_err(e)?.error_for_status().map_err(e)?;
     let safe = |x: &str| x.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c }).collect::<String>();
     let dir = download_dir(&s)?;
     std::fs::create_dir_all(&dir).map_err(e)?;
     let path = dir.join(format!("{} - {}.mp3", safe(&track.artist), safe(&track.name)));
-    std::fs::write(&path, &bytes).map_err(e)?;
+    {
+        use std::io::Write;
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&path).map_err(e)?);
+        while let Some(c) = resp.chunk().await.map_err(e)? { f.write_all(&c).map_err(e)?; }
+        f.flush().map_err(e)?;
+    }
     let p = path.to_string_lossy().to_string();
     let local = Track { id: format!("local:{}", track.id), source: "local".into(), audio: p.clone(), ..track };
     db(&s).save_download(&local, &p).map_err(e)?;
@@ -808,7 +830,25 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") { let _ = w.unminimize(); let _ = w.show(); let _ = w.set_focus(); }
         }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--tray"])))
+        // глобальные клавиши: работают, даже когда окно не в фокусе
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(|app, sc, ev| {
+            use tauri::Emitter;
+            use tauri_plugin_global_shortcut::{Code, ShortcutState};
+            if ev.state() != ShortcutState::Pressed { return; }
+            let cmd = match sc.key { Code::Space => "toggle", Code::ArrowRight => "next", Code::ArrowLeft => "prev", _ => return };
+            let _ = app.emit("tray", cmd.to_string());
+        }).build())
         .setup(|app| {
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                for k in [Code::Space, Code::ArrowRight, Code::ArrowLeft] {
+                    let _ = app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), k));
+                }
+            }
+            // автозапуск: стартуем спрятанными в трей
+            if std::env::args().any(|a| a == "--tray") { if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); } }
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let db = Db::open(&dir.join("silo.db")).map_err(|x| x.to_string())?;
@@ -843,7 +883,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
-            get_setting, set_setting, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
+            get_setting, set_setting, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, notify, set_autostart, scrobble, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
             create_playlist, delete_playlist, playlist_tracks, add_to_playlist,
             remove_from_playlist, list_downloads, download_track
         ])

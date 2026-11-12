@@ -60,7 +60,7 @@ pub fn parse_soundcloud(body: &str) -> Result<Vec<ArtistHit>> {
 
 /// MusicBrainz (открытые данные, без ключа). Идентификатор клиента — общий, без личных данных. Не чаще одного запроса в секунду (вызывается по паузе ввода).
 pub async fn musicbrainz(q: &str) -> Result<String> {
-    Ok(reqwest::Client::builder().user_agent("SiloPlayer/0.1 (open-source desktop music player)").build()?
+    Ok(crate::http()
         .get("https://musicbrainz.org/ws/2/artist/")
         .query(&[("query", q), ("fmt", "json"), ("limit", "6")])
         .send().await?.text().await?)

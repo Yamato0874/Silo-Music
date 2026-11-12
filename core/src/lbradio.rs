@@ -3,7 +3,7 @@ use crate::Result;
 use serde_json::Value;
 
 fn client() -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder().user_agent("SiloPlayer/1.0 (open-source desktop music player)").build()?)
+    Ok(crate::http())
 }
 
 /// MBID исполнителя по имени (лучшее совпадение с оценкой не ниже 90).

@@ -22,13 +22,13 @@ pub fn parse_ccmixter(body: &str) -> Result<Vec<Track>> {
 }
 
 pub async fn ccmixter(q: &str, limit: u32) -> Result<Vec<Track>> {
-    let body = reqwest::Client::new().get("https://ccmixter.org/api/query")
+    let body = crate::http().get("https://ccmixter.org/api/query")
         .query(&[("f", "json"), ("search", q), ("search_type", "match"), ("sort", "rank"), ("limit", &limit.to_string())]).send().await?.text().await?;
     parse_ccmixter(&body)
 }
 
 pub async fn archive(q: &str, limit: u32) -> Result<Vec<Track>> {
-    let c = reqwest::Client::new();
+    let c = crate::http();
     let query = format!("({q}) AND mediatype:audio AND licenseurl:*creativecommons*");
     let v: Value = c.get("https://archive.org/advancedsearch.php")
         .query(&[("q", query.as_str()), ("fl[]", "identifier"), ("fl[]", "title"), ("fl[]", "creator"), ("fl[]", "licenseurl"),

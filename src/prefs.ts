@@ -29,10 +29,16 @@ export interface Prefs {
   langStrict: boolean;
   /** скорость воспроизведения 0.75–1.5 */
   rate: number;
+  /** уведомление при смене трека, когда окно свёрнуто */
+  notify: boolean;
+  /** автозапуск с Windows (в трее) */
+  autostart: boolean;
+  /** эквалайзер сам подстраивается под жанр текущего трека */
+  eqAuto: boolean;
 }
 export const DEFAULTS: Prefs = {
   shuffle: false, repeat: "off", autoplay: true, crossfade: 0, gapless: true, normalize: false, eqOn: false,
-  eq: Array(10).fill(0), quality: "normal", theme: "amber", lang: "ru", volume: 0.8, onboarded: false, tastes: [], artists: [], diversity: "balanced", showVideo: false, langStrict: true, rate: 1,
+  eq: Array(10).fill(0), quality: "normal", theme: "amber", lang: "ru", volume: 0.8, onboarded: false, tastes: [], artists: [], diversity: "balanced", showVideo: false, langStrict: true, rate: 1, notify: true, autostart: false, eqAuto: false,
 };
 export const EQ_FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 export const PRESETS: Record<string, number[]> = {

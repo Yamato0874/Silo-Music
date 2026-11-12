@@ -76,7 +76,7 @@ pub async fn search(api_key: &str, query: &str, limit: u32) -> Result<Vec<Track>
         ("part", "snippet"), ("type", "video"), ("videoCategoryId", "10"), ("videoEmbeddable", "true"),
         ("maxResults", &limit.clamp(1, 50).to_string()), ("q", query), ("key", api_key.trim()),
     ];
-    let body = reqwest::Client::new()
+    let body = crate::http()
         .get("https://www.googleapis.com/youtube/v3/search")
         .query(&q)
         .send()
@@ -131,7 +131,7 @@ pub fn parse_items(body: &str) -> Result<Vec<Track>> {
 }
 
 async fn get(path: &str, q: &[(&str, &str)]) -> Result<String> {
-    Ok(reqwest::Client::new().get(format!("https://www.googleapis.com/youtube/v3/{path}")).query(q).send().await?.text().await?)
+    Ok(crate::http().get(format!("https://www.googleapis.com/youtube/v3/{path}")).query(q).send().await?.text().await?)
 }
 fn need_key(k: &str) -> Result<()> {
     if k.trim().is_empty() { return Err(Error::Msg("не указан ключ YouTube Data API (Настройки)".into())); }

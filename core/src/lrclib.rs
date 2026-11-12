@@ -4,7 +4,7 @@ use serde_json::Value;
 
 /// (синхронный LRC, обычный текст). Пустые строки — текста нет.
 pub async fn lyrics(artist: &str, title: &str, duration: u32) -> Result<(String, String)> {
-    let c = reqwest::Client::builder().user_agent("SiloPlayer/1.0 (open-source desktop music player)").build()?;
+    let c = crate::http();
     let mut q: Vec<(&str, String)> = vec![("artist_name", artist.into()), ("track_name", title.into())];
     if duration > 0 { q.push(("duration", duration.to_string())); }
     let r = c.get("https://lrclib.net/api/get").query(&q).send().await?;

@@ -22,6 +22,7 @@ export function RateButtons({ tr, size = "sm" }: { tr: Track; size?: "sm" | "md"
 export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track) => void }) {
   const { play, enqueue, cur, onError, ratings, radio, openArtist, playlists: pls } = useApp();
   const [f, setF] = useState("");
+  const [info, setInfo] = useState<Track | null>(null);
   const [limit, setLimit] = useState(100);
   if (!props.tracks.length) return <p className="muted">{t.empty}</p>;
   const err = (x: unknown) => onError(String(x));
@@ -38,6 +39,7 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
           { label: t.playNext, onClick: () => enqueue(tr, true) },
           { label: t.addQueue, onClick: () => enqueue(tr, false) },
           { label: t.trackRadio, onClick: () => radio(tr) },
+          { label: t.about, onClick: () => setInfo(tr) },
         ];
         if (tr.artist) items.push({ label: t.artistPage, onClick: () => openArtist(tr.artist) });
         if (["jamendo", "ccmixter", "archive"].includes(tr.source)) items.push({ label: tr.downloadAllowed ? t.download : t.noDownload, disabled: !tr.downloadAllowed, onClick: () => api.download(tr).catch(err) });
@@ -65,6 +67,21 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
         );
       })}
     </ul>
+    {info && (
+      <div className="scrim" onClick={() => setInfo(null)}>
+        <div className="dialog" onClick={(e) => e.stopPropagation()}>
+          <h3>{info.name}</h3>
+          <p className="muted">{info.artist}{info.album ? " · " + info.album : ""}</p>
+          <p>{t.source}: {srcName(info.source)}{info.duration ? " · " + fmt(info.duration) : ""}</p>
+          {info.licenseUrl && <p>{t.license}: <a className="artist-link" onClick={() => api.openUrl(info.licenseUrl).catch(err)}>{info.licenseUrl.replace(/^https?:\/\//, "")}</a></p>}
+          {info.tags.length > 0 && <p>{t.tags}: {info.tags.slice(0, 12).join(", ")}</p>}
+          <div className="row" style={{ gap: 8 }}>
+            {info.url && <Btn size="sm" onClick={() => api.openUrl(info.url).catch(err)}>{t.openSource}</Btn>}
+            <Btn size="sm" variant="solid" onClick={() => setInfo(null)}>{t.close}</Btn>
+          </div>
+        </div>
+      </div>
+    )}
     {all.length > limit && <button className="more-btn" onClick={() => setLimit(limit + 100)}>{t.showMore} ({all.length - limit})</button>}
     </>
   );

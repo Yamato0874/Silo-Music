@@ -45,7 +45,7 @@ impl Db {
     }
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(
-            "PRAGMA foreign_keys=ON;
+            "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
              CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS plays(
                id INTEGER PRIMARY KEY, track_id TEXT NOT NULL, tags TEXT NOT NULL,
@@ -67,6 +67,9 @@ impl Db {
         let _ = conn.execute("ALTER TABLE plays ADD COLUMN track TEXT", []);
         let _ = conn.execute("ALTER TABLE plays ADD COLUMN fraction REAL", []);
         let _ = conn.execute("ALTER TABLE ratings ADD COLUMN track TEXT", []);
+        // индексы под Эхо, историю и итоги; кэш старше 31 дня не нужен (правила YouTube API — 30 дней)
+        let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts); CREATE INDEX IF NOT EXISTS plays_track ON plays(track_id); CREATE INDEX IF NOT EXISTS ratings_ts ON ratings(ts);
+            DELETE FROM cache WHERE ts < strftime('%s','now') - 31*86400; PRAGMA optimize;");
         Ok(Self { conn })
     }
 

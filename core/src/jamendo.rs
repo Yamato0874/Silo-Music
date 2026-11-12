@@ -115,7 +115,7 @@ pub async fn search(client_id: &str, p: &SearchParams) -> Result<Vec<Track>> {
     if let Some(l) = p.lang.as_ref().filter(|s| !s.is_empty()) {
         q.push(("lang", l.clone()));
     }
-    let body = reqwest::Client::new().get(BASE).query(&q).send().await?.text().await?;
+    let body = crate::http().get(BASE).query(&q).send().await?.text().await?;
     parse(&body)
 }
 
@@ -170,7 +170,7 @@ pub fn parse_playlist_tracks(body: &str) -> Result<Vec<Track>> {
 
 pub async fn search_playlists(client_id: &str, q: &str) -> Result<Vec<PlaylistRef>> {
     key_check(client_id)?;
-    let body = reqwest::Client::new()
+    let body = crate::http()
         .get("https://api.jamendo.com/v3.0/playlists/")
         .query(&[("client_id", client_id.trim()), ("format", "json"), ("limit", "20"), ("namesearch", q)])
         .send().await?.text().await?;
@@ -179,7 +179,7 @@ pub async fn search_playlists(client_id: &str, q: &str) -> Result<Vec<PlaylistRe
 
 pub async fn playlist_tracks(client_id: &str, id: &str) -> Result<Vec<Track>> {
     key_check(client_id)?;
-    let body = reqwest::Client::new()
+    let body = crate::http()
         .get("https://api.jamendo.com/v3.0/playlists/tracks/")
         .query(&[("client_id", client_id.trim()), ("format", "json"), ("id", id), ("audioformat", "mp32")])
         .send().await?.text().await?;
@@ -212,7 +212,7 @@ mod tests {
 /// Поиск исполнителей Jamendo по имени (для подсказок при выборе любимых).
 pub async fn artists(client_id: &str, q: &str) -> Result<String> {
     key_check(client_id)?;
-    Ok(reqwest::Client::new()
+    Ok(crate::http()
         .get("https://api.jamendo.com/v3.0/artists/")
         .query(&[("client_id", client_id.trim()), ("format", "json"), ("limit", "6"), ("namesearch", q), ("imagesize", "100")])
         .send().await?.text().await?)
