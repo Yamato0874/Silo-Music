@@ -20,12 +20,20 @@ export function Search() {
   const [res, setRes] = useState<Track[]>([]);
   const [warn, setWarn] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
-  const go = (o?: { tags: string[]; lang?: string }) =>
-    !o && /^https?:\/\/(www\.|m\.|on\.|music\.)?(soundcloud\.com|youtube\.com|youtu\.be)\//i.test(q.trim())
+  const [seq] = useState({ n: 0 });
+  // поиск при наборе: через 0,7 с после последней буквы; YouTube (дорогая квота) только по «Найти» / Enter
+  useEffect(() => {
+    const s = q.trim();
+    if (s.length < 3) return;
+    const h = setTimeout(() => go(undefined, true), 700);
+    return () => clearTimeout(h);
+  }, [q]);
+  const go = (o?: { tags: string[]; lang?: string }, auto = false, my = ++seq.n) =>
+    !o &&/^https?:\/\/(www\.|m\.|on\.|music\.)?(soundcloud\.com|youtube\.com|youtu\.be)\//i.test(q.trim())
       ? api.linkTrack(q.trim()).then((tr) => { setRes([tr]); setWarn([]); setSearched(true); play([tr], 0); }).catch((e) => onError(String(e)))
       : api.searchAll({ query: o ? "" : q, tags: o ? o.tags : tags, lang: (o ? o.lang : lang) || undefined, offset: 0, limit: 20,
-      sources: o ? ["jamendo", "ccmixter", "archive"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
-      .then((r) => { setRes(r.tracks); setWarn(r.errors); setSearched(true); }).catch((e) => onError(String(e)));
+      sources: o ? ["jamendo", "ccmixter", "archive"] : auto ? ["local", "jamendo", "soundcloud", "ccmixter", "archive"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
+      .then((r) => { if (my !== seq.n) return; setRes(r.tracks); setWarn(r.errors); setSearched(true); }).catch((e) => onError(String(e)));
   return (
     <>
       <form onSubmit={(e) => { e.preventDefault(); go(); }} className="row">
