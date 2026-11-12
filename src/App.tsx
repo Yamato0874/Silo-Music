@@ -107,6 +107,13 @@ export default function App() {
   const waveArtists = useRef<ArtistSeed[] | undefined>(undefined);
   const [artist, setArtist] = useState("");
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [blocked, setBlockedList] = useState<string[]>([]);
+  useEffect(() => { api.getSetting("blocked_artists").then((x) => x && setBlockedList(JSON.parse(x))).catch(() => {}); }, []);
+  const setBlocked = useCallback((name: string, on: boolean) => setBlockedList((o) => {
+    const n = on ? [...o.filter((x) => x.toLowerCase() !== name.toLowerCase()), name] : o.filter((x) => x.toLowerCase() !== name.toLowerCase());
+    api.setSetting("blocked_artists", JSON.stringify(n)).catch(() => {});
+    return n;
+  }), []);
   const refreshPlaylists = useCallback(() => { api.playlists().then(setPlaylists).catch(() => {}); }, []);
   const dragFrom = useRef(-1);
   const waveBusy = useRef(false);
@@ -186,8 +193,17 @@ export default function App() {
   const rate = useCallback((tr: Track, v: number) => {
     api.rate(tr, v).then(() => {
       setRatings((r) => { const n = { ...r }; if (v) n[tr.id] = v; else delete n[tr.id]; return n; });
-      // забаненный трек сразу перестаёт играть: переходим к следующему
-      if (v === -2 && S.current.cur?.id === tr.id) skipRef.current(1);
+      // забаненный трек сразу перестаёт играть и уходит из очереди
+      if (v === -2) {
+        if (S.current.cur?.id === tr.id) skipRef.current(1);
+        const { queue: q, order: o, pos: ps } = S.current;
+        setOrder(o.filter((i, k) => k <= ps || q[i]?.id !== tr.id));
+        // 10+ забаненных треков исполнителя: предложить не рекомендовать его (только с согласия)
+        if (tr.artist) api.banned().then((b) => {
+          const n = b.filter((x) => x.artist.toLowerCase() === tr.artist.toLowerCase()).length;
+          if (n >= 10 && window.confirm(t.blockAsk.replace("{n}", String(n)).replace("{a}", tr.artist))) setBlockedRef.current(tr.artist, true);
+        }).catch(() => {});
+      }
     }).catch((x) => setErr(String(x)));
   }, []);
   /** «Сбросить вкусы»: чистим модель и историю, при желании и оценки; затем заново выбор жанров. */
@@ -324,6 +340,7 @@ export default function App() {
   const skipRef = useRef(skip);
   skipRef.current = skip;
   const rateRef = useRef(rate);
+  const setBlockedRef = useRef(setBlocked);
 
   // команды из трея
   useEffect(() => {
@@ -368,8 +385,8 @@ export default function App() {
   const radio = useCallback((tr: Track) => { startWaveRef.current(S.current.prefs.tastes, tr.artist ? [{ name: tr.artist, tags: tr.tags.slice(0, 3) }] : undefined); }, []);
   const openArtist = useCallback((name: string) => { setArtist(name); setTab("artist"); setErr(""); }, []);
   const stopWave = useCallback(() => setWave(false), []);
-  const ctx = useMemo(() => ({ play, enqueue, cur, ratings, rate, onError: setErr, prefs, setPrefs, resetTaste, wave, startWave: (a?: string[], b?: ArtistSeed[]) => startWaveRef.current(a, b), stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists }),
-    [play, enqueue, cur, ratings, rate, prefs, setPrefs, resetTaste, wave, stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists]);
+  const ctx = useMemo(() => ({ play, enqueue, cur, ratings, rate, onError: setErr, prefs, setPrefs, resetTaste, wave, startWave: (a?: string[], b?: ArtistSeed[]) => startWaveRef.current(a, b), stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists, blocked, setBlocked }),
+    [play, enqueue, cur, ratings, rate, prefs, setPrefs, resetTaste, wave, stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists, blocked, setBlocked]);
   const saveQueue = () => {
     const list = [cur, ...upcoming].filter(Boolean) as Track[];
     if (!list.length) return;

@@ -261,12 +261,13 @@ export function Liked() {
 
 /** Трек, отправленный в бан, не попадает в «Эхо». Жанры и исполнители не банятся. */
 export function Banned() {
-  const { onError, ratings, rate } = useApp();
+  const { onError, ratings, rate, blocked, setBlocked } = useApp();
   const [d, setD] = useState<Track[]>([]);
   useEffect(() => { api.banned().then(setD).catch((e) => onError(String(e))); }, [ratings]);
   return (
     <>
       <div className="row head"><div className="title"><b>{t.banned}</b><span className="muted">{t.bannedHint}</span></div></div>
+      {blocked.length > 0 && <div className="chips"><span className="muted">{t.blockedArtists}:</span>{blocked.map((a) => <Btn key={a} variant="chip" size="sm" onClick={() => setBlocked(a, false)} label={t.unblockArtist}>{a} ✕</Btn>)}</div>}
       {!d.length ? <p className="muted">{t.empty}</p> : (
         <ul className="tracks">
           {d.map((tr) => (
@@ -473,7 +474,8 @@ export function Settings() {
 
 /** Страница исполнителя: его треки в библиотеке и топ на YouTube (один поиск на исполнителя, кэш 30 дней). */
 export function Artist() {
-  const { artist, onError, startWave, prefs } = useApp();
+  const { artist, onError, startWave, prefs, blocked, setBlocked } = useApp();
+  const isBlocked = blocked.some((x) => x.toLowerCase() === artist.toLowerCase());
   const [tracks, setTracks] = useState<Track[]>([]);
   const [busy, setBusy] = useState(true);
   useEffect(() => {
@@ -489,7 +491,7 @@ export function Artist() {
   }, [artist]);
   return (
     <>
-      <div className="row head"><h2>{artist}</h2><Btn variant="solid" onClick={() => startWave(prefs.tastes, [{ name: artist, tags: [] }])}>{t.artistRadio}</Btn></div>
+      <div className="row head"><h2>{artist}</h2><Btn variant="solid" onClick={() => startWave(prefs.tastes, [{ name: artist, tags: [] }])}>{t.artistRadio}</Btn><Btn onClick={() => setBlocked(artist, !isBlocked)}>{isBlocked ? t.unblockArtist : t.blockArtist}</Btn></div>
       {busy ? <p className="muted">…</p> : tracks.length ? <TrackList tracks={tracks} /> : <p className="muted">{t.artistNoKey}</p>}
     </>
   );

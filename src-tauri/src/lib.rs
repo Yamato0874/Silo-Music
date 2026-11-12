@@ -26,12 +26,22 @@ fn api_on(s: &State<App>, svc: &str, keys: &[&str]) -> bool {
         _ => keys.iter().all(|k| !setting(s, k).unwrap_or_default().trim().is_empty()),
     }
 }
+/// Исполнители, которых человек попросил не рекомендовать (в нижнем регистре).
+fn blocked_artists(s: &State<App>) -> std::collections::HashSet<String> {
+    serde_json::from_str::<Vec<String>>(&setting(s, "blocked_artists").unwrap_or_default()).unwrap_or_default().into_iter().map(|x| x.to_lowercase()).collect()
+}
+/// Убрать забаненные треки и заблокированных исполнителей.
+fn drop_banned(s: &State<App>, v: &mut Vec<Track>) {
+    let r = db(s).ratings().unwrap_or_default();
+    let ba = blocked_artists(s);
+    v.retain(|t| r.get(&t.id) != Some(&-2) && !ba.contains(&t.artist.trim_end_matches(" - Topic").to_lowercase()));
+}
 fn download_dir(s: &State<App>) -> R<PathBuf> {
     let d = setting(s, "download_dir")?;
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
 }
 
-const KEYS: [&str; 15] = ["music_folder", "daily", "listenbrainz_token", "prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
+const KEYS: [&str; 16] = ["blocked_artists", "music_folder", "daily", "listenbrainz_token", "prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
 
 #[tauri::command]
 fn get_setting(s: State<App>, key: String) -> R<String> {
@@ -347,6 +357,7 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
     if params.sources.iter().any(|x| x == "archive") && !qq.trim().is_empty() {
         match opencat::archive(&qq, 6).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(format!("Internet Archive: {x}")) }
     }
+    drop_banned(&s, &mut out.tracks);
     // строгий язык: по умолчанию включён; отбрасываем треки других языков из всех источников
     if let Some(l) = params.lang.as_deref().filter(|l| !l.is_empty()) {
         if params.lang_strict != Some(false) { silo_core::langfilter::retain(&mut out.tracks, l); }
@@ -597,7 +608,8 @@ fn downloads_info(s: State<App>) -> R<(u64, String)> {
 
 #[tauri::command]
 fn rate_track(s: State<App>, track: Track, value: i32) -> R<()> {
-    db(&s).set_rating(&track, value.clamp(-1, 1)).map_err(e)
+    // -2 = бан трека (раньше ошибочно обрезался до -1 и становился дизлайком)
+    db(&s).set_rating(&track, value.clamp(-2, 1)).map_err(e)
 }
 #[tauri::command]
 fn liked_tracks(s: State<App>) -> R<Vec<Track>> {
@@ -771,6 +783,7 @@ async fn echo_mix(
     out_info.tracks = echo::compose(&slots, &pool, &played, &rated);
     // шире: не больше двух треков одного исполнителя за подборку
     youtube::cap_artist(&mut out_info.tracks, 2);
+    drop_banned(&s, &mut out_info.tracks);
     if out_info.tracks.is_empty() && yt_blocked() {
         return Err("Поиски YouTube на сегодня кончились, поэтому волна не может найти твои жанры и исполнителей. Соберётся после 11:00 по Москве, а уже найденное запоминается на месяц.".into());
     }

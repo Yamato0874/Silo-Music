@@ -28,6 +28,9 @@ export interface Ctx {
   /** плейлисты держим в одном месте, а не грузим в каждом списке */
   playlists: Playlist[];
   refreshPlaylists: () => void;
+  /** «Не рекомендовать исполнителя» */
+  blocked: string[];
+  setBlocked: (name: string, on: boolean) => void;
 }
 export const AppCtx = createContext<Ctx>(null as unknown as Ctx);
 export const useApp = () => useContext(AppCtx);
