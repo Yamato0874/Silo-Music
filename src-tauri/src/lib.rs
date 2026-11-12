@@ -72,30 +72,53 @@ fn yt_err(x: silo_core::Error) -> String {
 /// Поиск видео YouTube: сперва кэш (ttl секунд), затем сеть; при исчерпанной квоте сразу понятное сообщение без запроса.
 /// Треки жанра для «Эхо» почти без квоты: плейлист жанра ищется раз в 30 дней (100 ед.), его треки берутся за 1 ед. и кэшируются на 7 дней.
 /// Волна: похожие исполнители + жанр (или вкус, если поиски кончились).
-async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str, region: &str) -> R<Vec<Track>> {
+async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str, region: &str, fav: &[String]) -> R<Vec<Track>> {
     // лимит поисков берегём, а обычных запросов (10 000 в день) хватает: каналы из лайков подмешиваем всегда
-    let mut v = yt_similar_tracks(s, key).await;
-    v.extend(yt_taste_tracks(s, key, region).await.unwrap_or_default());
-    v.extend(yt_genre_core(s, key, text, region).await?);
+    // порядок важен: сначала любимые и похожие, затем каналы из лайков, жанр и только потом популярное
+    let mut v = yt_similar_tracks(s, key, fav).await;
+    v.extend(yt_taste_tracks(s, key, region, v.len() < 15).await.unwrap_or_default());
+    if v.len() < 30 { v.extend(yt_genre_core(s, key, text, region).await?); }
     Ok(v)
 }
 /// Как LB Radio: исполнители из лайков и дослушанного → похожие по ListenBrainz → их треки на YouTube.
 /// Поиск YouTube — один на нового исполнителя, кэш 30 дней; MBID и похожие — в кэше на 30 и 7 дней.
-async fn yt_similar_tracks(s: &State<'_, App>, key: &str) -> Vec<Track> {
+async fn yt_similar_tracks(s: &State<'_, App>, key: &str, fav: &[String]) -> Vec<Track> {
     let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as usize).unwrap_or(0);
     let seeds: Vec<String> = {
         let d = db(s);
         let mut v: Vec<Track> = d.rated_tracks(1).unwrap_or_default();
         v.extend(d.play_events(300).unwrap_or_default().into_iter().filter(|(_, f, _)| *f >= 0.7).map(|(t, _, _)| t));
-        let mut names: Vec<String> = vec![];
+        // любимые исполнители из знакомства и Настроек — первыми
+        let mut names: Vec<String> = fav.iter().map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect();
         for t in v { let a = t.artist.trim().trim_end_matches(" - Topic").to_string(); if !a.is_empty() && !names.iter().any(|x| x.eq_ignore_ascii_case(&a)) { names.push(a); } }
         names
     };
     if seeds.is_empty() { return vec![]; }
+    let nfav = fav.len().min(seeds.len());
+    let mut fresh = 0;
+    // сами любимые исполнители: их топ на YouTube (поиск один раз на исполнителя, кэш 30 дней)
+    let mut out: Vec<Track> = vec![];
+    for a in seeds.iter().take(nfav.min(10)) {
+        let ck = format!("yt:art:{}", a.to_lowercase());
+        let hit: Option<Vec<Track>> = db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
+        let v = match hit {
+            Some(v) => v,
+            None => {
+                if fresh >= 4 || yt_blocked() { continue; }
+                fresh += 1;
+                let Ok(v) = youtube::search(key, a, 10).await.map_err(yt_err) else { continue };
+                let v = youtube::keep_music(key, v).await.unwrap_or_default();
+                let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+                v
+            }
+        };
+        out.extend(v.into_iter().take(3));
+    }
     let mut sim: Vec<String> = vec![];
     let mut mb_calls = 0;
-    for k in 0..seeds.len().min(4) {
-        let a = &seeds[(n / 7 + k) % seeds.len()];
+    // для похожих: все любимые плюс два случайных исполнителя из лайков
+    let picks: Vec<&String> = seeds.iter().take(nfav).chain((0..2.min(seeds.len() - nfav)).map(|k| &seeds[nfav + (n / 7 + k) % (seeds.len() - nfav)])).take(8).collect();
+    for a in picks {
         let mk = format!("mb:{}", a.to_lowercase());
         let cached = db(s).cache_get(&mk, 30 * DAY).ok().flatten();
         let id = match cached {
@@ -114,9 +137,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str) -> Vec<Track> {
         let list = match hit { Some(v) => v, None => { let v = lbradio::similar(&id, 20).await.unwrap_or_default(); let _ = db(s).cache_put(&lk, &serde_json::to_string(&v).unwrap_or_default()); v } };
         for x in list { if !seeds.iter().any(|y| y.eq_ignore_ascii_case(&x)) && !sim.iter().any(|y| y.eq_ignore_ascii_case(&x)) { sim.push(x); } }
     }
-    // берём 8 похожих по кругу; новых (без кэша) ищем не больше 3 за раз, чтобы беречь лимит поисков
-    let mut out = vec![];
-    let mut fresh = 0;
+    // похожих берём по кругу; новых (без кэша) ищем не больше 3 сверх любимых, чтобы беречь лимит поисков
     for k in 0..sim.len().min(20) {
         let a = &sim[(n / 13 + k * 3) % sim.len()];
         let ck = format!("yt:art:{}", a.to_lowercase());
@@ -124,7 +145,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str) -> Vec<Track> {
         let v = match hit {
             Some(v) => v,
             None => {
-                if fresh >= 3 || yt_blocked() { continue; }
+                if fresh >= 7 || yt_blocked() { continue; }
                 fresh += 1;
                 let Ok(v) = youtube::search(key, a, 10).await.map_err(yt_err) else { continue };
                 let v = youtube::keep_music(key, v).await.unwrap_or_default();
@@ -139,7 +160,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str) -> Vec<Track> {
 async fn yt_genre_core(s: &State<'_, App>, key: &str, text: &str, region: &str) -> R<Vec<Track>> {
     // лимит поисков исчерпан или плейлист не нашёлся: берём популярную музыку (1 ед., другой лимит)
     let pl = yt_search_playlists(s, key, text, 30 * DAY).await.unwrap_or_default();
-    let Some(first) = pl.first() else { return yt_taste_tracks(s, key, region).await };
+    let Some(first) = pl.first() else { return yt_taste_tracks(s, key, region, true).await };
     let id = first.id.trim_start_matches("youtube:").to_string();
     let ck = format!("yt:pm:{id}");
     let hit = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok());
@@ -154,7 +175,7 @@ async fn yt_genre_core(s: &State<'_, App>, key: &str, text: &str, region: &str) 
         }
     };
     // в плейлисте одни часовые миксы или он недоступен: берём по вкусу и популярное
-    if v.len() < 5 { let mut t = yt_taste_tracks(s, key, region).await?; t.extend(v); return Ok(t); }
+    if v.len() < 5 { let mut t = yt_taste_tracks(s, key, region, true).await?; t.extend(v); return Ok(t); }
     Ok(v)
 }
 /// Популярная музыка на YouTube в стране языка, кэш на сутки.
@@ -167,7 +188,7 @@ async fn yt_chart(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<Track>> 
     Ok(v)
 }
 /// Без лимита поисков, по вкусу: свежие треки с каналов, которые человек лайкал или дослушивал (по 1 ед.), плюс популярное в стране языка.
-async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<Track>> {
+async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str, with_chart: bool) -> R<Vec<Track>> {
     let ids: Vec<String> = {
         let d = db(s);
         let mut v: Vec<Track> = d.rated_tracks(1).map_err(e)?;
@@ -205,7 +226,8 @@ async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<T
         youtube::cap_artist(&mut picked, 3);
         out.extend(picked);
     }
-    if let Ok(mut v) = yt_chart(s, key, region).await { youtube::cap_artist(&mut v, 2); out.extend(v); }
+    // популярное — только если по вкусу набралось мало
+    if with_chart || out.len() < 15 { if let Ok(mut v) = yt_chart(s, key, region).await { youtube::cap_artist(&mut v, 2); out.extend(v); } }
     Ok(out)
 }
 async fn yt_search(s: &State<'_, App>, key: &str, q: &str, limit: u32, ttl: i64) -> R<Vec<Track>> {
@@ -512,6 +534,7 @@ async fn echo_mix(
     seed_artists: Option<Vec<echo::SeedArtist>>,
     lang_strict: Option<bool>,
 ) -> R<EchoOut> {
+    let fav: Vec<String> = seed_artists.as_ref().map(|v| v.iter().map(|a| a.name.clone()).collect()).unwrap_or_default();
     use std::collections::HashSet;
     let id = setting(&s, "jamendo_client_id")?;
     let yt_key = setting(&s, "youtube_api_key")?;
@@ -588,7 +611,7 @@ async fn echo_mix(
         // YouTube дорогой (100 ед. за поиск): только один жанр за подборку, результаты кэшируются на 3 суток;
         // при исчерпанной квоте тихо пропускаем (сообщение один раз)
         if pos == Some(0) && has_yt {
-            match yt_genre_tracks(&s, &yt_key, &text, match seed_lang.as_deref() { Some("en") => "US", Some("de") => "DE", Some("fr") => "FR", Some("es") => "ES", _ => "RU" }).await {
+            match yt_genre_tracks(&s, &yt_key, &text, match seed_lang.as_deref() { Some("en") => "US", Some("de") => "DE", Some("fr") => "FR", Some("es") => "ES", _ => "RU" }, &fav).await {
                 Ok(mut v) => { for t in &mut v { if t.tags.is_empty() { t.tags = qt.clone(); } } cand.extend(v); }
                 Err(x) => { if !out_info.errors.contains(&x) { out_info.errors.push(x); } }
             }
