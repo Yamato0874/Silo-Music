@@ -408,6 +408,22 @@ async fn link_track(url: String) -> R<Track> {
         duration: 0, tags: vec![], license_url: u, pop: 0.0,
     })
 }
+/// Топ-треки исполнителя на YouTube для переноса плейлистов: общий кэш с волной (30 дней), поиск — один на исполнителя.
+/// Возвращает треки и признак, был ли потрачен поиск.
+#[tauri::command]
+async fn artist_tracks(s: State<'_, App>, artist: String) -> R<(Vec<Track>, bool)> {
+    let a = artist.trim().to_string();
+    if a.is_empty() { return Ok((vec![], false)); }
+    let ck = format!("yt:art:{}", a.to_lowercase());
+    let hit: Option<Vec<Track>> = db(&s).cache_get(&ck, 30 * DAY).map_err(e)?.and_then(|j| serde_json::from_str(&j).ok());
+    if let Some(v) = hit { return Ok((v, false)); }
+    let key = setting(&s, "youtube_api_key")?;
+    if key.trim().is_empty() || yt_blocked() { return Ok((vec![], false)); }
+    let v = youtube::search(&key, &a, 10).await.map_err(yt_err)?;
+    let v = youtube::keep_music(&key, v).await.unwrap_or_default();
+    let _ = db(&s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+    Ok((v, true))
+}
 /// Открыть подборку: id вида "youtube:PL…", "soundcloud:123", "jamendo:45".
 #[tauri::command]
 async fn open_playlist(s: State<'_, App>, id: String, lang: Option<String>) -> R<Vec<Track>> {
@@ -720,7 +736,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_setting, set_setting, open_url, link_track, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
+            get_setting, set_setting, open_url, link_track, artist_tracks, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
             create_playlist, delete_playlist, playlist_tracks, add_to_playlist,
             remove_from_playlist, list_downloads, download_track
         ])

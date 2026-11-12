@@ -16,6 +16,7 @@ export const api = {
   getSetting: (key: string) => invoke<string>("get_setting", { key }),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+  artistTracks: (artist: string) => invoke<[Track[], boolean]>("artist_tracks", { artist }),
   linkTrack: (url: string) => invoke<Track>("link_track", { url }),
   searchAll: (params: SearchParams) => invoke<SearchAll>("search_all", { params }),
   rate: (track: Track, value: number) => invoke<void>("rate_track", { track, value }),

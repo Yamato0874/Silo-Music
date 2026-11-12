@@ -123,6 +123,10 @@ export default function Import() {
     }
     setFromUrls(urlTracks);
     const out: Row[] = []; let yt = 0;
+    // проход 0: то, что уже слушали и лайкали (бесплатно, без сети)
+    const known: Track[] = [];
+    try { known.push(...(await api.history()), ...(await api.liked())); } catch { /* без истории тоже работаем */ }
+    const artistCache = new Map<string, Track[]>();
     for (let i = 0; i < wanted.length && !stop.current; i++) {
       const w = wanted[i];
       setProg(`${i + 1} / ${wanted.length}`);
@@ -131,7 +135,15 @@ export default function Import() {
       const pick = (list: Track[]) => list.forEach((tr) => { const s = score(w, tr); if (s > bs) { bs = s; best = tr; } });
       try {
         // сначала свободные источники и скачанное (бесплатно), YouTube только если не нашлось (стоит квоту: не больше 15 раз за импорт)
-        pick((await api.searchAll({ query: q, tags: [], offset: 0, limit: 6, sources: ["local", "jamendo", "soundcloud"], langStrict: false })).tracks);
+        pick(known);
+        if (bs < 0.6) pick((await api.searchAll({ query: q, tags: [], offset: 0, limit: 6, sources: ["local", "jamendo", "soundcloud"], langStrict: false })).tracks);
+        // проход 2: топ исполнителя на YouTube — один поиск на исполнителя (кэш 30 дней, общий с волной)
+        if (bs < 0.6 && w.artist.trim()) {
+          const ak = w.artist.trim().toLowerCase();
+          if (!artistCache.has(ak) && yt < 15) { const [v, searched] = await api.artistTracks(w.artist); if (searched) yt++; artistCache.set(ak, v); }
+          pick(artistCache.get(ak) ?? []);
+        }
+        // проход 3: точный поиск трека, только для ненайденного
         if (bs < 0.6 && yt < 15) { yt++; pick((await api.searchAll({ query: q, tags: [], offset: 0, limit: 5, sources: ["youtube"], langStrict: false })).tracks); }
       } catch { /* ошибка одного поиска не обрывает импорт */ }
       out.push({ w, hit: bs >= 0.6 ? best : undefined });
