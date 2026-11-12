@@ -208,3 +208,28 @@ pub async fn channels_of(key: &str, ids: &[String]) -> Result<Vec<String>> {
     }
     Ok(out)
 }
+
+/// Оставить только музыку: категория YouTube 10 «Музыка», длина от 1 до 12 минут (без шортсов, влогов и стримов). 1 единица на 50 видео.
+pub async fn keep_music(key: &str, tracks: Vec<Track>) -> Result<Vec<Track>> {
+    need_key(key)?;
+    let mut ok: std::collections::HashMap<String, u32> = Default::default();
+    for chunk in tracks.chunks(50) {
+        let ids = chunk.iter().filter_map(|t| t.id.strip_prefix("youtube:")).collect::<Vec<_>>().join(",");
+        let body = get("videos", &[("part", "snippet,contentDetails"), ("id", ids.as_str()), ("maxResults", "50"), ("key", key.trim())]).await?;
+        let v: Value = serde_json::from_str(&body)?;
+        if let Some(m) = v["error"]["message"].as_str() { return Err(Error::Msg(format!("YouTube: {m}"))); }
+        for it in v["items"].as_array().cloned().unwrap_or_default() {
+            let d = iso_duration(it["contentDetails"]["duration"].as_str().unwrap_or(""));
+            if it["snippet"]["categoryId"].as_str() == Some("10") && (60..=720).contains(&d) {
+                if let Some(id) = it["id"].as_str() { ok.insert(id.to_string(), d); }
+            }
+        }
+    }
+    Ok(tracks.into_iter().filter_map(|mut t| { let d = *ok.get(t.id.strip_prefix("youtube:")?)?; t.duration = d; Some(t) }).collect())
+}
+
+/// Не больше `n` треков одного исполнителя.
+pub fn cap_artist(v: &mut Vec<Track>, n: usize) {
+    let mut c: std::collections::HashMap<String, usize> = Default::default();
+    v.retain(|t| { let k = c.entry(t.artist.to_lowercase()).or_insert(0); *k += 1; *k <= n });
+}

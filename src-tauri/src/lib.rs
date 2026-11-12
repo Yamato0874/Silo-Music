@@ -76,17 +76,20 @@ async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str, region: &str
     let pl = yt_search_playlists(s, key, text, 30 * DAY).await.unwrap_or_default();
     let Some(first) = pl.first() else { return yt_taste_tracks(s, key, region).await };
     let id = first.id.trim_start_matches("youtube:").to_string();
-    let ck = format!("yt:pi:{id}");
+    let ck = format!("yt:pm:{id}");
     if let Some(v) = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
     let v = youtube::playlist_items(key, &id).await.map_err(e)?;
+    let mut v = youtube::keep_music(key, v).await.unwrap_or_default();
+    youtube::cap_artist(&mut v, 3);
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
 /// Популярная музыка на YouTube в стране языка, кэш на сутки.
 async fn yt_chart(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<Track>> {
-    let ck = format!("yt:chart:{region}");
+    let ck = format!("yt:chart2:{region}");
     if let Some(v) = db(s).cache_get(&ck, DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
-    let v = youtube::music_chart(key, region).await.map_err(e)?;
+    let mut v = youtube::music_chart(key, region).await.map_err(e)?;
+    v.retain(|t| (60..=720).contains(&t.duration));
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
@@ -109,20 +112,27 @@ async fn yt_taste_tracks(s: &State<'_, App>, key: &str, region: &str) -> R<Vec<T
             None => { let c = youtube::channels_of(key, &ids).await.map_err(e)?; let _ = db(s).cache_put(&ck, &serde_json::to_string(&c).unwrap_or_default()); c }
         };
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
-        for k in 0..chans.len().min(3) {
+        let mut picked: Vec<Track> = vec![];
+        for k in 0..chans.len().min(8) {
             let c = &chans[(n + k) % chans.len()];
             let Some(rest) = c.strip_prefix("UC") else { continue };
             let pl = format!("UU{rest}");
-            let pk = format!("yt:pi:{pl}");
+            let pk = format!("yt:pm:{pl}");
             let hit = db(s).cache_get(&pk, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok());
             let items = match hit {
                 Some(v) => v,
-                None => match youtube::playlist_items(key, &pl).await { Ok(v) => { let _ = db(s).cache_put(&pk, &serde_json::to_string(&v).unwrap_or_default()); v } Err(_) => vec![] },
+                // только музыка: проверка категории и длины, результат в кэше на 7 дней
+                None => match youtube::playlist_items(key, &pl).await {
+                    Ok(v) => { let m = youtube::keep_music(key, v).await.unwrap_or_default(); let _ = db(s).cache_put(&pk, &serde_json::to_string(&m).unwrap_or_default()); m }
+                    Err(_) => vec![],
+                },
             };
-            out.extend(items.into_iter().take(15));
+            picked.extend(items.into_iter().take(6));
         }
+        youtube::cap_artist(&mut picked, 3);
+        out.extend(picked);
     }
-    if let Ok(v) = yt_chart(s, key, region).await { out.extend(v); }
+    if let Ok(mut v) = yt_chart(s, key, region).await { youtube::cap_artist(&mut v, 2); out.extend(v); }
     Ok(out)
 }
 async fn yt_search(s: &State<'_, App>, key: &str, q: &str, limit: u32, ttl: i64) -> R<Vec<Track>> {
@@ -542,6 +552,8 @@ async fn echo_mix(
         });
     }
     out_info.tracks = echo::compose(&slots, &pool, &played, &rated);
+    // шире: не больше двух треков одного исполнителя за подборку
+    youtube::cap_artist(&mut out_info.tracks, 2);
     Ok(out_info)
 }
 #[derive(serde::Serialize, Default)]
