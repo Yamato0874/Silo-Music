@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ArtistSeed, Playlist, Track } from "./api";
 import { setLang, t } from "./i18n";
 import { AppCtx, Tab } from "./ctx";
@@ -6,12 +6,13 @@ import { DEFAULTS, Prefs, isTheme, qualityFormat } from "./prefs";
 import Player, { PlayerHandle, holdNext } from "./Player";
 import { psGet, psSet, usePs } from "./psStore";
 import { RateButtons } from "./TrackList";
-import Onboarding from "./Onboarding";
 import { migrateTastes, seedFor } from "./tastes";
 import { Artist, Banned, Browse, Downloads, Echo, History, Home, Liked, Playlists, Search, Settings } from "./views";
 import { Btn } from "./ui";
 import Titlebar from "./Titlebar";
-import Import from "./Import";
+// редкие экраны грузятся по требованию: меньше стартовый код и память
+const Onboarding = lazy(() => import("./Onboarding"));
+const Import = lazy(() => import("./Import"));
 
 const TABS: Tab[] = ["home", "search", "browse", "echo", "liked", "banned", "history", "playlists", "downloads", "import", "settings"];
 
@@ -51,6 +52,25 @@ function Transport({ player, skip, prefs, setPrefs }: { player: React.RefObject<
   );
 }
 
+/** Текст песни из LRCLIB; синхронный подсвечивает текущую строку. */
+function Lyrics({ tr, onClose }: { tr: Track; onClose: () => void }) {
+  const ps = usePs();
+  const [txt, setTxt] = useState<[string, string] | null>(null);
+  useEffect(() => { setTxt(null); api.lyrics(tr.artist, tr.name, tr.duration).then(setTxt).catch(() => setTxt(["", ""])); }, [tr.id]);
+  const lines = useMemo(() => (txt?.[0] ?? "").split("\n").map((l) => { const m = l.match(/^\[(\d+):(\d+(?:\.\d+)?)\](.*)$/); return m ? { at: +m[1] * 60 + +m[2], text: m[3].trim() } : null; }).filter(Boolean) as { at: number; text: string }[], [txt]);
+  const cur = lines.reduce((k, l, i) => (l.at <= ps.pos ? i : k), -1);
+  const box = useRef<HTMLUListElement>(null);
+  useEffect(() => { box.current?.querySelector(".on")?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [cur]);
+  return (
+    <aside className="queue lyrics">
+      <div className="row head"><div className="title"><b>{t.lyrics}</b><span className="muted">{tr.name}</span></div><Btn icon="close" size="sm" label={t.lyrics} onClick={onClose} /></div>
+      {txt === null ? <p className="muted">…</p> : lines.length ? (
+        <ul ref={box}>{lines.map((l, i) => <li key={i} className={i === cur ? "on" : ""}>{l.text || "♪"}</li>)}</ul>
+      ) : txt[1] ? <pre className="plain">{txt[1]}</pre> : <p className="muted">{t.noLyrics}</p>}
+    </aside>
+  );
+}
+
 const shuffled = (n: number, first: number) => {
   const r = Array.from({ length: n }, (_, i) => i).filter((i) => i !== first);
   for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
@@ -78,6 +98,16 @@ export default function App() {
   const [order, setOrder] = useState<number[]>([]);
   const [pos, setPos] = useState(-1);
   const [showQ, setShowQ] = useState(false);
+  const [showL, setShowL] = useState(false);
+  const [mini, setMini] = useState(false);
+  /** мини-плеер: маленькое окно поверх всех */
+  const toggleMini = async () => {
+    const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
+    const w = getCurrentWindow();
+    if (!mini) { await w.setMinSize(new LogicalSize(360, 96)); await w.setSize(new LogicalSize(520, 112)); await w.setAlwaysOnTop(true); }
+    else { await w.setAlwaysOnTop(false); await w.setSize(new LogicalSize(1180, 760)); await w.setMinSize(new LogicalSize(800, 560)); }
+    setMini(!mini);
+  };
   const [redo, setRedo] = useState(false);
   const player = useRef<PlayerHandle>(null);
 
@@ -307,19 +337,19 @@ export default function App() {
   };
 
   if (!loaded) return null;
-  if (!prefs.onboarded) return <><Titlebar /><Onboarding prefs={prefs} done={(x) => { setRedo(false); setPrefs(x); }} startStep={redo ? 1 : 0} /></>;
+  if (!prefs.onboarded) return <><Titlebar /><Suspense fallback={null}><Onboarding prefs={prefs} done={(x) => { setRedo(false); setPrefs(x); }} startStep={redo ? 1 : 0} /></Suspense></>;
 
   return (
     <AppCtx.Provider value={ctx}>
       <Titlebar />
-      <div className="app">
+      <div className={"app" + (mini ? " mini" : "")}>
         <nav>
           <h1>Silo</h1>
           {TABS.map((k) => <Btn key={k} variant="nav" active={tab === k} onClick={() => { setTab(k); setErr(""); }}>{t[k]}{k === "echo" && wave ? " ●" : ""}</Btn>)}
         </nav>
         <main>
           {err && <div className="err" onClick={() => setErr("")}>{err}</div>}
-          <View />
+          <Suspense fallback={null}><View /></Suspense>
         </main>
         {showQ && (
           <aside className="queue">
@@ -338,6 +368,7 @@ export default function App() {
             </ul>
           </aside>
         )}
+        {showL && cur && !mini && <Lyrics tr={cur} onClose={() => setShowL(false)} />}
         <Player ref={player} track={cur} nextTrack={nextTrack} prefs={prefs} onEnded={ended} onCrossfaded={crossfaded} onState={psSet} onWarn={setErr} />
         <footer>
           <div className="now">
@@ -347,7 +378,12 @@ export default function App() {
           <div className="side">
             <Btn icon={prefs.volume === 0 ? "mute" : "volume"} size="sm" label={t.volume} onClick={() => setPrefs({ volume: prefs.volume === 0 ? 0.8 : 0 })} />
             <Volume value={prefs.volume} live={(v) => player.current?.setVolume(v)} onChange={(v) => setPrefs({ volume: v })} />
-            <Btn icon="queue" size="sm" label={t.queue} active={showQ} onClick={() => setShowQ(!showQ)} />
+            <select className="rate" aria-label={t.speed} title={t.speed} value={prefs.rate || 1} onChange={(e) => setPrefs({ rate: Number(e.target.value) })}>
+              {[0.75, 1, 1.25, 1.5].map((r) => <option key={r} value={r}>{r}×</option>)}
+            </select>
+            <Btn size="sm" active={showL} onClick={() => { setShowL(!showL); setShowQ(false); }}>{t.lyrics}</Btn>
+            <Btn icon="queue" size="sm" label={t.queue} active={showQ} onClick={() => { setShowQ(!showQ); setShowL(false); }} />
+            <Btn size="sm" active={mini} onClick={toggleMini}>{mini ? "⤢" : "⤡"}</Btn>
           </div>
         </footer>
       </div>

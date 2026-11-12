@@ -27,10 +27,12 @@ export interface Prefs {
   showVideo: boolean;
   /** строгий языковой фильтр: выбранный язык исключает треки других языков в поиске, «Эхо» и подборках */
   langStrict: boolean;
+  /** скорость воспроизведения 0.75–1.5 */
+  rate: number;
 }
 export const DEFAULTS: Prefs = {
   shuffle: false, repeat: "off", autoplay: true, crossfade: 0, gapless: true, normalize: false, eqOn: false,
-  eq: Array(10).fill(0), quality: "normal", theme: "amber", lang: "ru", volume: 0.8, onboarded: false, tastes: [], artists: [], diversity: "balanced", showVideo: false, langStrict: true,
+  eq: Array(10).fill(0), quality: "normal", theme: "amber", lang: "ru", volume: 0.8, onboarded: false, tastes: [], artists: [], diversity: "balanced", showVideo: false, langStrict: true, rate: 1,
 };
 export const EQ_FREQS = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 export const PRESETS: Record<string, number[]> = {

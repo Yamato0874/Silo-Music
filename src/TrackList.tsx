@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { api, Track } from "./api";
 import { srcName, t } from "./i18n";
 import { useApp } from "./ctx";
@@ -20,11 +21,19 @@ export function RateButtons({ tr, size = "sm" }: { tr: Track; size?: "sm" | "md"
 /** Строка трека: обложка, название, источник, длительность, оценка и одно меню действий. */
 export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track) => void }) {
   const { play, enqueue, cur, onError, ratings, radio, openArtist, playlists: pls } = useApp();
+  const [f, setF] = useState("");
+  const [limit, setLimit] = useState(100);
   if (!props.tracks.length) return <p className="muted">{t.empty}</p>;
   const err = (x: unknown) => onError(String(x));
+  // быстрый фильтр и порции по 100: длинные списки не рисуются целиком
+  const low = f.trim().toLowerCase();
+  const all = props.tracks.map((tr, i) => [tr, i] as const).filter(([tr]) => !low || (tr.name + " " + tr.artist).toLowerCase().includes(low));
+  const shown = all.slice(0, limit);
   return (
+    <>
+    {props.tracks.length > 15 && <input className="list-filter" value={f} onChange={(e) => { setF(e.target.value); setLimit(100); }} placeholder={t.filter} />}
     <ul className="tracks">
-      {props.tracks.map((tr, i) => {
+      {shown.map(([tr, i]) => {
         const items: MenuItem[] = [
           { label: t.playNext, onClick: () => enqueue(tr, true) },
           { label: t.addQueue, onClick: () => enqueue(tr, false) },
@@ -56,5 +65,7 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
         );
       })}
     </ul>
+    {all.length > limit && <button className="more-btn" onClick={() => setLimit(limit + 100)}>{t.showMore} ({all.length - limit})</button>}
+    </>
   );
 }

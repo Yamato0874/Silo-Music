@@ -189,7 +189,7 @@ pub async fn music_chart(key: &str, region: &str) -> Result<Vec<Track>> {
         Some(Track {
             id: format!("youtube:{vid}"), source: "youtube".into(), kind: "music".into(), url: format!("https://www.youtube.com/watch?v={vid}"),
             name: unescape(&s(&sn["title"])), artist: s(&sn["channelTitle"]).trim_end_matches(" - Topic").to_string(), album: String::new(),
-            image: s(&sn["thumbnails"]["high"]["url"]), audio: String::new(), download_url: String::new(), download_allowed: false,
+            image: s(&sn["thumbnails"]["medium"]["url"]), audio: String::new(), download_url: String::new(), download_allowed: false,
             duration: iso_duration(&s(&it["contentDetails"]["duration"])), tags: vec![], license_url: String::new(), pop: 0.0,
         })
     }).collect())

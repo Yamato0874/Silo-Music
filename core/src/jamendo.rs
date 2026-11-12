@@ -100,7 +100,7 @@ pub async fn search(client_id: &str, p: &SearchParams) -> Result<Vec<Track>> {
         ("limit", p.limit.clamp(1, 50).to_string()),
         ("offset", p.offset.to_string()),
         ("include", "musicinfo stats".into()),
-        ("imagesize", "300".into()),
+        ("imagesize", "200".into()),
         ("audioformat", p.audio_format.clone().unwrap_or_else(|| "mp32".into())),
         ("order", p.order.clone().unwrap_or_else(|| "popularity_total".into())),
     ];

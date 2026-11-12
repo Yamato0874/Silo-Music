@@ -1,4 +1,4 @@
-use silo_core::{db::Db, echo, jamendo, lbradio, model::*, opencat, soundcloud, youtube};
+use silo_core::{db::Db, echo, jamendo, lbradio, lrclib, model::*, opencat, soundcloud, youtube};
 use std::collections::HashMap;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{Manager, State};
@@ -456,6 +456,40 @@ async fn artist_tracks(s: State<'_, App>, artist: String) -> R<(Vec<Track>, bool
     let _ = db(&s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok((v, true))
 }
+/// Текст песни (LRCLIB). Для YouTube название часто «Исполнитель - Песня (Official Video)»: чистим.
+#[tauri::command]
+async fn lyrics(artist: String, title: String, duration: u32) -> R<(String, String)> {
+    let mut a = artist.trim_end_matches(" - Topic").trim().to_string();
+    let mut t = title.clone();
+    for cut in ["(", "[", "|", " ft.", " feat."] { if let Some(i) = t.find(cut) { if i > 0 { t.truncate(i); } } }
+    if let Some((x, y)) = t.split_once(" - ") { a = x.trim().to_string(); t = y.to_string(); }
+    lrclib::lyrics(&a, t.trim(), duration).await.map_err(e)
+}
+#[tauri::command]
+fn rename_playlist(s: State<App>, id: i64, name: String) -> R<()> { db(&s).rename_playlist(id, name.trim()).map_err(e) }
+/// Итоги: топ исполнителей и треков и часы прослушивания (за 30 дней и за всё время).
+#[tauri::command]
+fn stats(s: State<App>) -> R<serde_json::Value> {
+    let ev = db(&s).play_events(100000).map_err(e)?;
+    let mut out = serde_json::Map::new();
+    for (key, max_age) in [("month", 30 * DAY), ("all", i64::MAX)] {
+        let mut secs = 0f64;
+        let mut arts: HashMap<String, u32> = HashMap::new();
+        let mut trs: HashMap<String, (Track, u32)> = HashMap::new();
+        for (t, f, age) in ev.iter().filter(|(_, _, a)| *a <= max_age) {
+            secs += t.duration as f64 * f.clamp(0.0, 1.0);
+            if *f >= 0.5 {
+                *arts.entry(t.artist.trim_end_matches(" - Topic").to_string()).or_default() += 1;
+                trs.entry(t.id.clone()).or_insert((t.clone(), 0)).1 += 1;
+                let _ = age;
+            }
+        }
+        let mut a: Vec<_> = arts.into_iter().filter(|(k, _)| !k.is_empty()).collect(); a.sort_by(|x, y| y.1.cmp(&x.1)); a.truncate(10);
+        let mut t: Vec<_> = trs.into_values().collect(); t.sort_by(|x, y| y.1.cmp(&x.1)); t.truncate(10);
+        out.insert(key.into(), serde_json::json!({ "hours": (secs / 360.0).round() / 10.0, "artists": a, "tracks": t.into_iter().map(|(t, n)| serde_json::json!({ "track": t, "plays": n })).collect::<Vec<_>>() }));
+    }
+    Ok(serde_json::Value::Object(out))
+}
 /// Открыть подборку: id вида "youtube:PL…", "soundcloud:123", "jamendo:45".
 #[tauri::command]
 async fn open_playlist(s: State<'_, App>, id: String, lang: Option<String>) -> R<Vec<Track>> {
@@ -809,7 +843,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
-            get_setting, set_setting, open_url, link_track, artist_tracks, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
+            get_setting, set_setting, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
             create_playlist, delete_playlist, playlist_tracks, add_to_playlist,
             remove_from_playlist, list_downloads, download_track
         ])

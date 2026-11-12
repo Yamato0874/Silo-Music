@@ -255,6 +255,10 @@ impl Db {
         self.conn.execute("INSERT INTO playlists(name) VALUES(?)", [name])?;
         Ok(self.conn.last_insert_rowid())
     }
+    pub fn rename_playlist(&self, id: i64, name: &str) -> Result<()> {
+        self.conn.execute("UPDATE playlists SET name=? WHERE id=?", rusqlite::params![name, id])?;
+        Ok(())
+    }
     pub fn delete_playlist(&self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM playlists WHERE id=?", [id])?;
         Ok(())

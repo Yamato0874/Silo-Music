@@ -21,6 +21,14 @@ export function Search() {
   const [warn, setWarn] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
   const [seq] = useState({ n: 0 });
+  // последние 10 запросов
+  const [recent, setRecent] = useState<string[]>([]);
+  useEffect(() => { api.getSetting("search_history").then((x) => x && setRecent(JSON.parse(x))).catch(() => {}); }, []);
+  const remember = (x: string) => {
+    const v = x.trim(); if (!v || /^https?:/i.test(v)) return;
+    const n = [v, ...recent.filter((r) => r.toLowerCase() !== v.toLowerCase())].slice(0, 10);
+    setRecent(n); api.setSetting("search_history", JSON.stringify(n)).catch(() => {});
+  };
   // поиск при наборе: через 0,7 с библиотека и Jamendo; YouTube (100 поисков в день) только по Enter или «Найти»
   useEffect(() => {
     const s = q.trim();
@@ -36,13 +44,16 @@ export function Search() {
       .then((r) => { if (my !== seq.n) return; setRes(r.tracks); setWarn(r.errors); setSearched(true); }).catch((e) => onError(String(e)));
   return (
     <>
-      <form onSubmit={(e) => { e.preventDefault(); go(); }} className="row">
+      <form onSubmit={(e) => { e.preventDefault(); remember(q); go(); }} className="row">
         <input id="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.searchPlaceholder} />
         <Btn variant="ghost" active={showGenres || tags.length > 0 || !!lang} onClick={() => setShowGenres(!showGenres)}>
           {t.filters}{tags.length + (lang ? 1 : 0) ? ` · ${tags.length + (lang ? 1 : 0)}` : ""}
         </Btn>
         <Btn type="submit" variant="primary">{t.find}</Btn>
       </form>
+      {!q && recent.length > 0 && (
+        <div className="chips"><span className="muted">{t.recentQ}:</span>{recent.map((r) => <Btn key={r} variant="chip" size="sm" onClick={() => setQ(r)}>{r}</Btn>)}</div>
+      )}
       {showGenres && (
         <div className="chips">
           <select value={lang} onChange={(e) => setLang(e.target.value)} aria-label={t.language}>
@@ -227,6 +238,7 @@ export function Home() {
           </div>
         </div>
       )}
+      <Stats />
     </>
   );
 }
@@ -316,6 +328,8 @@ export function Playlists() {
         {sel && (
           <div className="row head">
             <div className="title"><b>{sel.name}</b></div>
+            <Btn size="sm" onClick={() => { const n = window.prompt(t.rename, sel.name); if (n && n.trim()) api.renamePlaylist(sel.id, n).then(() => { setSel({ ...sel, name: n.trim() }); refresh(); }); }}>{t.rename}</Btn>
+            <Btn size="sm" disabled={!tracks.length} onClick={() => navigator.clipboard.writeText(tracks.map((x) => x.artist + " - " + x.name).join("\n")).then(() => alert(t.copied))}>{t.exportPl}</Btn>
             <Btn icon="play" variant="primary" disabled={!tracks.length} onClick={() => play(tracks, 0)}>{t.playAll}</Btn>
           </div>
         )}
@@ -459,5 +473,23 @@ export function Artist() {
       <div className="row head"><h2>{artist}</h2><Btn variant="solid" onClick={() => startWave(prefs.tastes, [{ name: artist, tags: [] }])}>{t.artistRadio}</Btn></div>
       {busy ? <p className="muted">…</p> : tracks.length ? <TrackList tracks={tracks} /> : <p className="muted">{t.artistNoKey}</p>}
     </>
+  );
+}
+
+/** Итоги: часы прослушивания, топ исполнителей и треков (за 30 дней и за всё время). */
+export function Stats() {
+  const { openArtist, play } = useApp();
+  const [d, setD] = useState<Awaited<ReturnType<typeof api.stats>> | null>(null);
+  const [k, setK] = useState<"month" | "all">("month");
+  useEffect(() => { api.stats().then(setD).catch(() => {}); }, []);
+  if (!d) return null;
+  const x = d[k];
+  return (
+    <section>
+      <div className="row head"><h4 className="shelf-t">{t.stats}: {x.hours} {t.hours}</h4>
+        <div className="chips"><Btn variant="chip" size="sm" active={k === "month"} onClick={() => setK("month")}>{t.month}</Btn><Btn variant="chip" size="sm" active={k === "all"} onClick={() => setK("all")}>{t.allTime}</Btn></div></div>
+      {x.artists.length > 0 && <div className="chips"><span className="muted">{t.topArtists}:</span>{x.artists.map(([a, n]) => <Btn key={a} variant="chip" size="sm" onClick={() => openArtist(a)}>{a} · {n}</Btn>)}</div>}
+      {x.tracks.length > 0 && <><p className="muted">{t.topTracks}</p><ol className="top">{x.tracks.map((r, i) => <li key={r.track.id}><a className="artist-link" onClick={() => play(x.tracks.map((z) => z.track), i)}>{r.track.name}</a> <span className="muted">{r.track.artist} · {r.plays}</span></li>)}</ol></>}
+    </section>
   );
 }

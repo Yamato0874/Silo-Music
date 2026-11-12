@@ -8,6 +8,7 @@ pub mod artists;
 pub mod youtube;
 pub mod opencat;
 pub mod lbradio;
+pub mod lrclib;
 pub mod langfilter;
 
 #[derive(Debug, thiserror::Error)]

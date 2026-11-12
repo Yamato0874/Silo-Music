@@ -204,6 +204,13 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     return () => clearTimeout(id);
   }, []);
 
+  // скорость воспроизведения
+  useEffect(() => {
+    const r = props.prefs.rate || 1;
+    decks.current.forEach((d) => (d.playbackRate = r));
+    yt.current?.setPlaybackRate?.(r);
+  }, [props.prefs.rate, props.track?.id]);
+
   // громкость
   useEffect(() => {
     if (!fading.current) A().volume = props.prefs.volume;

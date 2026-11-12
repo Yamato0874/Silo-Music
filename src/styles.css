@@ -227,3 +227,15 @@ footer { grid-column:1/3; display:grid; grid-template-columns:minmax(200px,1fr) 
 .imp-list .mark { font-weight:700; } .imp-list .ok .mark { color:var(--acc); } .imp-list .miss { opacity:.7; } .imp-list .miss .mark { color:#d0334f; }
 .imp-list .want, .imp-list .got { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .imp-list .got { color:var(--mut); }
 .artist-link { color:inherit; cursor:pointer; } .artist-link:hover { text-decoration:underline; }
+
+/* быстрый фильтр и догрузка длинных списков */
+.list-filter { width:100%; margin:0 0 8px; }
+.more-btn { display:block; margin:10px auto; padding:6px 14px; background:none; border:1px solid var(--line); border-radius:8px; color:inherit; cursor:pointer; }
+/* текст песни */
+.lyrics ul { list-style:none; padding:0; margin:8px 0; } .lyrics li { padding:4px 0; color:var(--mut); transition:color .2s; } .lyrics li.on { color:inherit; font-weight:600; }
+.lyrics .plain { white-space:pre-wrap; font:inherit; color:var(--mut); }
+select.rate { width:auto; padding:2px 4px; font-size:12px; }
+.top { margin:4px 0 0; padding-left:20px; } .top li { margin:2px 0; }
+/* мини-плеер */
+.app.mini nav, .app.mini main, .app.mini .queue, .app.mini .embed.show { display:none !important; }
+.app.mini footer { position:fixed; inset:0; height:auto; }
