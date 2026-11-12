@@ -175,3 +175,22 @@ mod tests {
         assert!(super::parse(r#"{"error":{"message":"quota"}}"#).is_err());
     }
 }
+
+/// Популярная музыка региона (videos.list chart=mostPopular, категория 10 «Музыка»): 1 единица квоты, не тратит лимит поисков.
+pub async fn music_chart(key: &str, region: &str) -> Result<Vec<Track>> {
+    need_key(key)?;
+    let body = get("videos", &[("part", "snippet,contentDetails"), ("chart", "mostPopular"), ("videoCategoryId", "10"), ("regionCode", region), ("maxResults", "50"), ("key", key.trim())]).await?;
+    let v: Value = serde_json::from_str(&body)?;
+    if let Some(m) = v["error"]["message"].as_str() { return Err(Error::Msg(format!("YouTube: {m}"))); }
+    let s = |x: &Value| x.as_str().unwrap_or("").to_string();
+    Ok(v["items"].as_array().cloned().unwrap_or_default().iter().filter_map(|it| {
+        let vid = it["id"].as_str()?;
+        let sn = &it["snippet"];
+        Some(Track {
+            id: format!("youtube:{vid}"), source: "youtube".into(), kind: "music".into(), url: format!("https://www.youtube.com/watch?v={vid}"),
+            name: unescape(&s(&sn["title"])), artist: s(&sn["channelTitle"]).trim_end_matches(" - Topic").to_string(), album: String::new(),
+            image: s(&sn["thumbnails"]["high"]["url"]), audio: String::new(), download_url: String::new(), download_allowed: false,
+            duration: iso_duration(&s(&it["contentDetails"]["duration"])), tags: vec![], license_url: String::new(), pop: 0.0,
+        })
+    }).collect())
+}

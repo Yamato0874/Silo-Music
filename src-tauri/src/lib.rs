@@ -72,14 +72,22 @@ fn yt_err(x: silo_core::Error) -> String {
 /// Поиск видео YouTube: сперва кэш (ttl секунд), затем сеть; при исчерпанной квоте сразу понятное сообщение без запроса.
 /// Треки жанра для «Эхо» почти без квоты: плейлист жанра ищется раз в 30 дней (100 ед.), его треки берутся за 1 ед. и кэшируются на 7 дней.
 async fn yt_genre_tracks(s: &State<'_, App>, key: &str, text: &str) -> R<Vec<Track>> {
-    let pl = yt_search_playlists(s, key, text, 30 * DAY).await?;
-    let Some(first) = pl.first() else { return Ok(vec![]) };
+    // лимит поисков исчерпан или плейлист не нашёлся: берём популярную музыку (1 ед., другой лимит)
+    let pl = yt_search_playlists(s, key, text, 30 * DAY).await.unwrap_or_default();
+    let Some(first) = pl.first() else { return yt_chart(s, key).await };
     let id = first.id.trim_start_matches("youtube:").to_string();
     let ck = format!("yt:pi:{id}");
     if let Some(v) = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
-    if yt_blocked() { return Err(YT_QUOTA_MSG.into()); }
-    let v = youtube::playlist_items(key, &id).await.map_err(yt_err)?;
+    let v = youtube::playlist_items(key, &id).await.map_err(e)?;
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+    Ok(v)
+}
+/// Популярная музыка на YouTube, кэш на сутки.
+async fn yt_chart(s: &State<'_, App>, key: &str) -> R<Vec<Track>> {
+    let ck = "yt:chart:RU";
+    if let Some(v) = db(s).cache_get(ck, DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
+    let v = youtube::music_chart(key, "RU").await.map_err(e)?;
+    let _ = db(s).cache_put(ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
 async fn yt_search(s: &State<'_, App>, key: &str, q: &str, limit: u32, ttl: i64) -> R<Vec<Track>> {
