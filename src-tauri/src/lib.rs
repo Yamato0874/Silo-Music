@@ -123,7 +123,7 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
     if want("local") {
         out.tracks.extend(db(&s).search_downloads(&q).map_err(e)?);
     }
-    if want("jamendo") {
+    if want("jamendo") && !setting(&s, "jamendo_client_id")?.trim().is_empty() {
         match jamendo::search(&setting(&s, "jamendo_client_id")?, &params).await {
             Ok(v) => out.tracks.extend(v),
             Err(x) => out.errors.push(format!("Jamendo: {x}")),

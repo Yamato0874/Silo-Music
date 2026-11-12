@@ -23,7 +23,7 @@ pub fn parse_ccmixter(body: &str) -> Result<Vec<Track>> {
 
 pub async fn ccmixter(q: &str, limit: u32) -> Result<Vec<Track>> {
     let body = reqwest::Client::new().get("https://ccmixter.org/api/query")
-        .query(&[("f", "json"), ("search", q), ("sort", "rank"), ("limit", &limit.to_string())]).send().await?.text().await?;
+        .query(&[("f", "json"), ("search", q), ("search_type", "match"), ("sort", "rank"), ("limit", &limit.to_string())]).send().await?.text().await?;
     parse_ccmixter(&body)
 }
 
@@ -45,7 +45,7 @@ pub async fn archive(q: &str, limit: u32) -> Result<Vec<Track>> {
         let (id, file) = f?;
         let creator = match &d["creator"] { Value::Array(a) => a.first().map(s).unwrap_or_default(), x => s(x) };
         Some(track(format!("archive:{id}"), "archive", format!("https://archive.org/details/{id}"), s(&d["title"]), creator,
-            format!("https://archive.org/download/{id}/{}", file.replace(' ', "%20")), s(&d["licenseurl"]), vec![]))
+            format!("https://archive.org/download/{id}/{}", file.split('/').map(|p| p.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>()).collect::<Vec<_>>().join("/")), s(&d["licenseurl"]), vec![]))
     }).collect())
 }
 
@@ -57,5 +57,18 @@ mod tests {
           "upload_extra":{"usertags":"piano,chill"},"files":[{"download_url":"https://ccmixter.org/content/U/r.mp3"}]}]"#;
         let t = super::parse_ccmixter(j).unwrap();
         assert_eq!((t[0].id.as_str(), t[0].audio.as_str(), t[0].tags.len()), ("ccmixter:5", "https://ccmixter.org/content/U/r.mp3", 2));
+    }
+}
+#[cfg(test)]
+mod live {
+    #[tokio::test]
+    #[ignore]
+    async fn live_search() {
+        let a = super::ccmixter("piano", 5).await;
+        println!("ccmixter: {:?}", a.as_ref().map(|v| v.len()));
+        let b = super::archive("piano", 3).await;
+        println!("archive: {:?}", b.as_ref().map(|v| v.iter().map(|t| t.audio.clone()).collect::<Vec<_>>()));
+        let c = super::archive("рок", 3).await;
+        println!("archive ru: {:?}", c.as_ref().map(|v| v.len()));
     }
 }
