@@ -154,9 +154,9 @@ export default function Onboarding({ prefs, done, startStep = 0 }: { prefs: Pref
               <Btn variant="chip" size="sm" active={lang === "en"} onClick={() => setL("en")}>English</Btn>
             </div>
             <p className="muted">{lang === "en"
-              ? "The app has no music of its own: it searches and plays tracks from services. Each service asks for a free personal key (like a pass) so it knows who is making requests. Add at least one; you can skip now and do it later in Settings."
-              : "В приложении нет своей музыки: оно ищет и проигрывает треки из сервисов. Каждый сервис просит бесплатный личный ключ (что-то вроде пропуска), чтобы знать, кто делает запросы. Добавьте хотя бы один; можно пропустить сейчас и сделать позже в Настройках."}</p>
-            <Keys lang={lang} saveLabel={lang === "en" ? "Save keys" : "Сохранить ключи"} />
+              ? "Open catalogs (ccMixter, Internet Archive) work right away, no keys. YouTube and SoundCloud play by pasted link without keys; for search inside them add a free key. Everything plays inside the app. You can change this later in Settings."
+              : "Открытые каталоги (ccMixter, Internet Archive) работают сразу, без ключей. YouTube и SoundCloud играют по вставленной ссылке без ключей; для поиска внутри них добавьте бесплатный ключ. Вся музыка играет внутри приложения. Позже всё можно изменить в Настройках."}</p>
+            <Keys lang={lang} saveLabel={lang === "en" ? "Save" : "Сохранить"} />
             <div className="onb-foot">
               <Btn onClick={() => setKeysStep(false)}>{t.skip}</Btn>
               <Btn variant="primary" onClick={() => setKeysStep(false)}>{t.continue}</Btn>

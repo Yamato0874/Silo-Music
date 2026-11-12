@@ -32,7 +32,7 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
           { label: t.playNext, onClick: () => enqueue(tr, true) },
           { label: t.addQueue, onClick: () => enqueue(tr, false) },
         ];
-        if (tr.source === "jamendo") items.push({ label: tr.downloadAllowed ? t.download : t.noDownload, disabled: !tr.downloadAllowed, onClick: () => api.download(tr).catch(err) });
+        if (["jamendo", "ccmixter", "archive"].includes(tr.source)) items.push({ label: tr.downloadAllowed ? t.download : t.noDownload, disabled: !tr.downloadAllowed, onClick: () => api.download(tr).catch(err) });
         if (props.onRemove) items.push({ label: t.removeFromPlaylist, onClick: () => props.onRemove!(tr) });
         if (pls.length) {
           items.push({ label: t.addToPlaylist, header: true });

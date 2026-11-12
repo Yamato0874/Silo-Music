@@ -56,6 +56,14 @@ const SERVICES: Svc[] = [
 ];
 
 export const ALL_KEYS = SERVICES.flatMap((s) => s.fields.map((f) => f.key));
+/** Сервисы с выбором режима: по ссылке (вставка ссылок, без ключей) или через API (поиск по ключам). */
+const MODE_SVC = ["youtube", "soundcloud"];
+/** Открытые каталоги без ключей (Creative Commons). Включены по умолчанию, можно отключить. */
+const CATALOGS: [string, string, [string, string]][] = [
+  ["ccmixter", "ccMixter", ["Ремиксы и инструментал под лицензиями Creative Commons. Без ключа.", "Remixes and instrumentals under Creative Commons licenses. No key."]],
+  ["archive", "Internet Archive", ["Аудиоархив archive.org, только записи с лицензией Creative Commons. Без ключа.", "archive.org audio, only Creative Commons recordings. No key."]],
+];
+const EXTRA = [...MODE_SVC.map((m) => "mode_" + m), ...CATALOGS.map(([c]) => "cat_" + c)];
 
 /** Ключи сервисов: для каждого — зачем, как получить, ссылка и поля. Ключи хранятся только локально в базе приложения. */
 export default function Keys({ lang, onSaved, saveLabel }: { lang: L; onSaved?: () => void; saveLabel?: string }) {
@@ -63,19 +71,38 @@ export default function Keys({ lang, onSaved, saveLabel }: { lang: L; onSaved?: 
   const [v, setV] = useState<Record<string, string>>({});
   const [ok, setOk] = useState(false);
   const [err, setErr] = useState("");
-  useEffect(() => { ALL_KEYS.forEach((k) => api.getSetting(k).then((x) => setV((o) => ({ ...o, [k]: x }))).catch(() => {})); }, []);
+  useEffect(() => { [...ALL_KEYS, ...EXTRA].forEach((k) => api.getSetting(k).then((x) => setV((o) => ({ ...o, [k]: x }))).catch(() => {})); }, []);
+  const modeOf = (id: string) => v["mode_" + id] || (SERVICES.find((s) => s.id === id)!.fields.every((f) => (v[f.key] ?? "").trim()) ? "api" : "link");
+  const set = (k: string, x: string) => { setV({ ...v, [k]: x }); setOk(false); };
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    Promise.all(ALL_KEYS.map((k) => api.setSetting(k, v[k] ?? ""))).then(() => { setOk(true); setErr(""); onSaved?.(); }).catch((x) => setErr(String(x)));
+    Promise.all([...ALL_KEYS.map((k) => api.setSetting(k, v[k] ?? "")), ...MODE_SVC.map((m) => api.setSetting("mode_" + m, modeOf(m))), ...CATALOGS.map(([c]) => api.setSetting("cat_" + c, v["cat_" + c] === "0" ? "0" : "1"))]).then(() => { setOk(true); setErr(""); onSaved?.(); }).catch((x) => setErr(String(x)));
   };
   return (
     <form className="keys" onSubmit={submit}>
+      <section className="key-card">
+        <h4>{i ? "Open catalogs" : "Открытые каталоги"}</h4>
+        <p className="muted">{i ? "Free music with open licenses, plays right in the app. Untick what you don't need." : "Свободная музыка с открытыми лицензиями, играет прямо в приложении. Снимите галочку, если не нужно."}</p>
+        {CATALOGS.map(([c, name, d]) => (
+          <label key={c} className="row" style={{ gap: 8, alignItems: "flex-start", margin: "4px 0" }}>
+            <input type="checkbox" style={{ width: "auto" }} checked={v["cat_" + c] !== "0"} onChange={(e) => set("cat_" + c, e.target.checked ? "1" : "0")} />
+            <span><b>{name}</b> <span className="muted">{d[i]}</span></span>
+          </label>
+        ))}
+      </section>
       {SERVICES.map((s) => (
         <section key={s.id} className="key-card">
           <h4>{s.name}</h4>
           <p>{s.why[i]}</p>
           <ol>{s.steps[i].map((x, n) => <li key={n}>{x}</li>)}</ol>
           {s.note && <p className="muted">{s.note[i]}</p>}
+          {MODE_SVC.includes(s.id) && (
+            <div className="chips" style={{ margin: "6px 0" }}>
+              <Btn variant="chip" size="sm" active={modeOf(s.id) === "link"} onClick={() => set("mode_" + s.id, "link")}>{i ? "By link (no key)" : "По ссылке (без ключа)"}</Btn>
+              <Btn variant="chip" size="sm" active={modeOf(s.id) === "api"} onClick={() => set("mode_" + s.id, "api")}>{i ? "Via API (search)" : "Через API (поиск)"}</Btn>
+            </div>
+          )}
+          {MODE_SVC.includes(s.id) && modeOf(s.id) === "link" && <p className="muted">{i ? "Paste a track link into Search: it plays inside the app." : "Вставьте ссылку на трек в Поиск: он заиграет внутри приложения."}</p>}
           <div className="row" style={{ margin: "6px 0" }}>
             <Btn size="sm" onClick={() => api.openUrl(s.url).catch((x) => setErr(String(x)))}>{i ? `Open ${s.name} page` : `Открыть страницу ${s.name}`}</Btn>
           </div>

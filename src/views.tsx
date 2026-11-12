@@ -21,7 +21,7 @@ export function Search() {
   const [warn, setWarn] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
   const go = (o?: { tags: string[]; lang?: string }) =>
-    !o && /^https?:\/\/(www\.|m\.|on\.)?soundcloud\.com\//i.test(q.trim())
+    !o && /^https?:\/\/(www\.|m\.|on\.|music\.)?(soundcloud\.com|youtube\.com|youtu\.be)\//i.test(q.trim())
       ? api.linkTrack(q.trim()).then((tr) => { setRes([tr]); setWarn([]); setSearched(true); play([tr], 0); }).catch((e) => onError(String(e)))
       : api.searchAll({ query: o ? "" : q, tags: o ? o.tags : tags, lang: (o ? o.lang : lang) || undefined, offset: 0, limit: 20,
       sources: o ? ["jamendo"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })

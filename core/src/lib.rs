@@ -6,6 +6,7 @@ pub mod echo;
 pub mod taxonomy;
 pub mod artists;
 pub mod youtube;
+pub mod opencat;
 pub mod langfilter;
 
 #[derive(Debug, thiserror::Error)]

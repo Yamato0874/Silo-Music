@@ -25,7 +25,7 @@ interface Props {
   onEnded(): void; onCrossfaded(): void; onState(s: PState): void; onWarn(m: string): void;
 }
 
-const isAudio = (t?: Track): boolean => !!t && (t.source === "jamendo" || t.source === "local");
+const isAudio = (t?: Track): boolean => !!t && t.source !== "youtube" && t.source !== "soundcloud";
 const srcOf = (t?: Track) => (t!.source === "local" ? convertFileSrc(t!.audio) : t!.audio);
 
 /**

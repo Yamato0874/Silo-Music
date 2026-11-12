@@ -6,7 +6,7 @@ export interface Track {
 }
 export interface PlaylistRef { id: string; source: Source; title: string; owner: string; image: string; count: number }
 export interface PlaylistHits { playlists: PlaylistRef[]; errors: string[] }
-export type Source = "jamendo" | "youtube" | "soundcloud" | "local";
+export type Source = "jamendo" | "youtube" | "soundcloud" | "local" | "ccmixter" | "archive";
 export interface Playlist { id: number; name: string; count: number }
 export interface SearchParams { query?: string; tags: string[]; lang?: string; order?: string; offset: number; limit: number; sources?: Source[]; audioFormat?: string; langStrict?: boolean }
 export interface EchoOut { tracks: Track[]; missing: string[]; errors: string[] }

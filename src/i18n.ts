@@ -100,7 +100,7 @@ export const t = new Proxy({} as Record<K, string>, {
   get: (_, k: string) => ((D as Record<string, readonly [string, string]>)[k]?.[lang === "en" ? 1 : 0] ?? k),
 });
 
-export const srcName = (s: Source | string) => ({ jamendo: "Jamendo", youtube: "YouTube", soundcloud: "SoundCloud", local: lang === "en" ? "Downloaded" : "Скачано" } as Record<string, string>)[s] ?? s;
+export const srcName = (s: Source | string) => ({ jamendo: "Jamendo", youtube: "YouTube", soundcloud: "SoundCloud", ccmixter: "ccMixter", archive: "Internet Archive", local: lang === "en" ? "Downloaded" : "Скачано" } as Record<string, string>)[s] ?? s;
 
 export const GENRES: [string, string, string][] = FAMILIES.map((f) => [queryTags(f.id)[0], f.ru, f.en]);
 export const genreName = (g: [string, string, string]) => (lang === "en" ? g[2] : g[1]);

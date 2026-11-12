@@ -28,7 +28,7 @@
 npm install
 npm run tauri icon app-icon.png   # один раз, генерирует иконки
 npm run tauri dev                 # разработка
-npm run tauri build -- --bundles nsis   # установщик для Windows
+npm run tauri build                     # установщики: target/release/bundle/nsis/*.exe и msi/*.msi
 ```
 Тесты ядра: `cargo test -p silo-core`.
 

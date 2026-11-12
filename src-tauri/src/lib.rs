@@ -1,4 +1,4 @@
-use silo_core::{db::Db, echo, jamendo, model::*, soundcloud, youtube};
+use silo_core::{db::Db, echo, jamendo, model::*, opencat, soundcloud, youtube};
 use std::collections::HashMap;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{Manager, State};
@@ -18,6 +18,16 @@ fn setting(s: &State<App>, key: &str) -> R<String> {
     Ok(db(s).get_setting(key).map_err(e)?.unwrap_or_default())
 }
 
+/// Режим сервиса: "api" (поиск по ключам) или "link" (только вставка ссылок). По умолчанию API, если ключи заданы.
+fn api_on(s: &State<App>, svc: &str, keys: &[&str]) -> bool {
+    match setting(s, &format!("mode_{svc}")).unwrap_or_default().as_str() {
+        "api" => true,
+        "link" => false,
+        _ => keys.iter().all(|k| !setting(s, k).unwrap_or_default().trim().is_empty()),
+    }
+}
+/// Открытый каталог включён (выбор на экране первого запуска или в настройках).
+fn cat_on(s: &State<App>, c: &str) -> bool { setting(s, &format!("cat_{c}")).unwrap_or_default() != "0" }
 fn download_dir(s: &State<App>) -> R<PathBuf> {
     let d = setting(s, "download_dir")?;
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
@@ -119,19 +129,26 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
             Err(x) => out.errors.push(format!("Jamendo: {x}")),
         }
     }
-    if want("youtube") && !q.trim().is_empty() {
+    if want("youtube") && !q.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) {
         let key = setting(&s, "youtube_api_key")?;
         match yt_search(&s, &key, &q, 15, 3 * DAY).await {
             Ok(v) => out.tracks.extend(v),
             Err(x) => out.errors.push(x),
         }
     }
-    if want("soundcloud") && !q.trim().is_empty() {
+    if want("soundcloud") && !q.trim().is_empty() && api_on(&s, "soundcloud", &["soundcloud_client_id", "soundcloud_client_secret"]) {
         let (id, sec) = (setting(&s, "soundcloud_client_id")?, setting(&s, "soundcloud_client_secret")?);
         match soundcloud::search(&id, &sec, &q, 15).await {
             Ok(v) => out.tracks.extend(v),
             Err(x) => out.errors.push(x.to_string()),
         }
+    }
+    let qq = if q.trim().is_empty() { params.tags.join(" ") } else { q.clone() };
+    if want("ccmixter") && cat_on(&s, "ccmixter") && !qq.trim().is_empty() {
+        match opencat::ccmixter(&qq, 10).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(format!("ccMixter: {x}")) }
+    }
+    if want("archive") && cat_on(&s, "archive") && !qq.trim().is_empty() {
+        match opencat::archive(&qq, 6).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(format!("Internet Archive: {x}")) }
     }
     // строгий язык: по умолчанию включён; отбрасываем треки других языков из всех источников
     if let Some(l) = params.lang.as_deref().filter(|l| !l.is_empty()) {
@@ -193,7 +210,23 @@ async fn link_track(url: String) -> R<Track> {
     let u = url.trim().split('?').next().unwrap_or("").trim_end_matches('/').to_string();
     let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://")).ok_or("нужна ссылка, начинающаяся с https://")?;
     let host = rest.split('/').next().unwrap_or("").trim_start_matches("www.").trim_start_matches("m.");
-    if host != "soundcloud.com" && host != "on.soundcloud.com" { return Err("это не ссылка SoundCloud".into()); }
+    if ["youtube.com", "music.youtube.com", "youtu.be"].contains(&host) {
+        let full = url.trim();
+        let vid = full.split(['?', '&']).find_map(|p| p.strip_prefix("v=")).map(String::from)
+            .or_else(|| (host == "youtu.be").then(|| rest.split('/').nth(1).unwrap_or("").to_string()))
+            .or_else(|| rest.split("/shorts/").nth(1).map(|x| x.split('/').next().unwrap_or("").to_string()))
+            .filter(|v| !v.is_empty()).ok_or("в ссылке YouTube нет видео")?;
+        let page = format!("https://www.youtube.com/watch?v={vid}");
+        let v: serde_json::Value = reqwest::Client::new().get("https://www.youtube.com/oembed").query(&[("format", "json"), ("url", page.as_str())])
+            .send().await.map_err(e)?.json().await.map_err(|_| "YouTube не отдаёт это видео (закрыто или удалено)".to_string())?;
+        let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
+        return Ok(Track {
+            id: format!("youtube:{vid}"), source: "youtube".into(), kind: "music".into(), url: page.clone(), name: s("title"), artist: s("author_name"),
+            album: String::new(), image: s("thumbnail_url"), audio: String::new(), download_url: String::new(), download_allowed: false,
+            duration: 0, tags: vec![], license_url: page, pop: 0.0,
+        });
+    }
+    if host != "soundcloud.com" && host != "on.soundcloud.com" { return Err("поддерживаются ссылки YouTube и SoundCloud".into()); }
     let r = reqwest::Client::new().get("https://soundcloud.com/oembed").query(&[("format", "json"), ("url", u.as_str())]).send().await.map_err(e)?;
     if !r.status().is_success() { return Err("SoundCloud не нашёл трек по этой ссылке (он удалён или закрыт)".into()); }
     let v: serde_json::Value = r.json().await.map_err(e)?;
@@ -484,8 +517,8 @@ fn list_downloads(s: State<App>) -> R<Vec<(Track, String)>> {
 /// Скачивание только если лицензия трека это разрешает (audiodownload_allowed).
 #[tauri::command]
 async fn download_track(s: State<'_, App>, track: Track) -> R<String> {
-    if track.source != "jamendo" {
-        return Err("Скачивать можно только треки Jamendo с разрешения автора".into());
+    if !["jamendo", "ccmixter", "archive"].contains(&track.source.as_str()) {
+        return Err("Скачивать можно только треки Jamendo, ccMixter и Internet Archive с открытой лицензией".into());
     }
     if !track.download_allowed || track.download_url.is_empty() {
         return Err("Автор не разрешил скачивание этого трека".into());
