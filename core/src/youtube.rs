@@ -194,3 +194,17 @@ pub async fn music_chart(key: &str, region: &str) -> Result<Vec<Track>> {
         })
     }).collect())
 }
+
+/// Каналы видео (videos.list по id, до 50 за 1 единицу): нужны, чтобы брать новые треки любимых исполнителей.
+pub async fn channels_of(key: &str, ids: &[String]) -> Result<Vec<String>> {
+    need_key(key)?;
+    let joined = ids.iter().take(50).cloned().collect::<Vec<_>>().join(",");
+    let body = get("videos", &[("part", "snippet"), ("id", joined.as_str()), ("maxResults", "50"), ("key", key.trim())]).await?;
+    let v: Value = serde_json::from_str(&body)?;
+    if let Some(m) = v["error"]["message"].as_str() { return Err(Error::Msg(format!("YouTube: {m}"))); }
+    let mut out: Vec<String> = vec![];
+    for it in v["items"].as_array().cloned().unwrap_or_default() {
+        if let Some(c) = it["snippet"]["channelId"].as_str() { if !out.iter().any(|x| x == c) { out.push(c.to_string()); } }
+    }
+    Ok(out)
+}
