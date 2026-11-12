@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { api, Playlist, Track } from "./api";
+import { api, Track } from "./api";
 import { srcName, t } from "./i18n";
 import { useApp } from "./ctx";
 import { Btn, Menu, MenuItem } from "./ui";
@@ -20,9 +19,7 @@ export function RateButtons({ tr, size = "sm" }: { tr: Track; size?: "sm" | "md"
 
 /** Строка трека: обложка, название, источник, длительность, оценка и одно меню действий. */
 export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track) => void }) {
-  const { play, enqueue, cur, onError, ratings } = useApp();
-  const [pls, setPls] = useState<Playlist[]>([]);
-  useEffect(() => { api.playlists().then(setPls).catch(() => {}); }, [props.tracks]);
+  const { play, enqueue, cur, onError, ratings, radio, openArtist, playlists: pls } = useApp();
   if (!props.tracks.length) return <p className="muted">{t.empty}</p>;
   const err = (x: unknown) => onError(String(x));
   return (
@@ -31,7 +28,9 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
         const items: MenuItem[] = [
           { label: t.playNext, onClick: () => enqueue(tr, true) },
           { label: t.addQueue, onClick: () => enqueue(tr, false) },
+          { label: t.trackRadio, onClick: () => radio(tr) },
         ];
+        if (tr.artist) items.push({ label: t.artistPage, onClick: () => openArtist(tr.artist) });
         if (["jamendo", "ccmixter", "archive"].includes(tr.source)) items.push({ label: tr.downloadAllowed ? t.download : t.noDownload, disabled: !tr.downloadAllowed, onClick: () => api.download(tr).catch(err) });
         if (props.onRemove) items.push({ label: t.removeFromPlaylist, onClick: () => props.onRemove!(tr) });
         if (pls.length) {
@@ -46,7 +45,7 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
             </button>
             <div className="meta" onClick={() => play(props.tracks, i)}>
               <b>{tr.name}</b>
-              <span><em className={"src " + tr.source}>{srcName(tr.source)}</em>{tr.artist}</span>
+              <span><em className={"src " + tr.source}>{srcName(tr.source)}</em><a className="artist-link" onClick={(e) => { e.stopPropagation(); if (tr.artist) openArtist(tr.artist); }}>{tr.artist}</a></span>
             </div>
             <span className="dur">{fmt(tr.duration)}</span>
             <div className="acts">

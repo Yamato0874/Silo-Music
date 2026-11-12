@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Track } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, ArtistSeed, Playlist, Track } from "./api";
 import { setLang, t } from "./i18n";
 import { AppCtx, Tab } from "./ctx";
 import { DEFAULTS, Prefs, isTheme, qualityFormat } from "./prefs";
-import Player, { PlayerHandle } from "./Player";
+import Player, { PlayerHandle, holdNext } from "./Player";
 import { psGet, psSet, usePs } from "./psStore";
 import { RateButtons } from "./TrackList";
 import Onboarding from "./Onboarding";
 import { migrateTastes, seedFor } from "./tastes";
-import { Banned, Browse, Downloads, Echo, History, Home, Liked, Playlists, Search, Settings } from "./views";
+import { Artist, Banned, Browse, Downloads, Echo, History, Home, Liked, Playlists, Search, Settings } from "./views";
 import { Btn } from "./ui";
 import Titlebar from "./Titlebar";
 import Import from "./Import";
@@ -62,6 +62,11 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("home");
   const [wave, setWave] = useState(false);
   const waveSeed = useRef<string[] | undefined>(undefined);
+  const waveArtists = useRef<ArtistSeed[] | undefined>(undefined);
+  const [artist, setArtist] = useState("");
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const refreshPlaylists = useCallback(() => { api.playlists().then(setPlaylists).catch(() => {}); }, []);
+  const dragFrom = useRef(-1);
   const waveBusy = useRef(false);
   const waveRetry = useRef(0);
   const [err, setErr] = useState("");
@@ -85,7 +90,25 @@ export default function App() {
   useEffect(() => {
     api.getSetting("prefs").then((x) => { if (x) { const p = { ...DEFAULTS, ...JSON.parse(x) }; p.tastes = migrateTastes(p.tastes ?? []); if (!isTheme(p.theme)) p.theme = DEFAULTS.theme; setPrefsState(p); } }).catch(() => {}).finally(() => setLoaded(true));
     api.ratings().then(setRatings).catch(() => {});
+    refreshPlaylists();
+    // продолжить с того же места: очередь, трек и позиция — на паузе
+    api.getSetting("session").then((x) => {
+      if (!x) return;
+      const ss = JSON.parse(x) as { queue: Track[]; order: number[]; pos: number; at: number };
+      if (!ss.queue?.length || ss.pos < 0 || ss.pos >= ss.order.length) return;
+      const tr = ss.queue[ss.order[ss.pos]];
+      if (tr) holdNext(tr.id, ss.at || 0);
+      setQueue(ss.queue); setOrder(ss.order); setPos(ss.pos);
+    }).catch(() => {});
   }, []);
+  // сохраняем сессию при смене очереди и раз в 10 с (позиция)
+  const saveSession = () => {
+    const { queue: q, order: o, pos: p } = S.current;
+    if (!q.length) return;
+    api.setSetting("session", JSON.stringify({ queue: q.slice(0, 500), order: o.filter((i) => i < 500), pos: p, at: psGet().pos })).catch(() => {});
+  };
+  useEffect(() => { if (loaded) { const id = window.setTimeout(saveSession, 500); return () => clearTimeout(id); } }, [queue, order, pos, loaded]);
+  useEffect(() => { const id = window.setInterval(saveSession, 10000); return () => clearInterval(id); }, []);
   const setPrefs = useCallback((p: Partial<Prefs>) => setPrefsState((o) => ({ ...o, ...p })), []);
   // сохранение настроек с задержкой (ползунки не пишут в базу на каждый пиксель) и принудительно при закрытии/сворачивании
   useEffect(() => {
@@ -94,7 +117,7 @@ export default function App() {
     return () => clearTimeout(id);
   }, [prefs, loaded]);
   useEffect(() => {
-    const flush = () => { if (document.visibilityState === "hidden") api.setSetting("prefs", JSON.stringify(S.current.prefs)).catch(() => {}); };
+    const flush = () => { if (document.visibilityState === "hidden") { api.setSetting("prefs", JSON.stringify(S.current.prefs)).catch(() => {}); saveSession(); } };
     document.addEventListener("visibilitychange", flush);
     window.addEventListener("pagehide", flush);
     return () => { document.removeEventListener("visibilitychange", flush); window.removeEventListener("pagehide", flush); };
@@ -123,18 +146,18 @@ export default function App() {
     }).catch((x) => setErr(String(x)));
   }, [setPrefs]);
 
-  const play = (list: Track[], i: number, keepWave = false) => {
+  const play = useCallback((list: Track[], i: number, keepWave = false) => {
     if (!keepWave) setWave(false); // любой ручной запуск списка выключает бесконечное «Эхо»
     setQueue(list);
-    if (prefs.shuffle) { setOrder(shuffled(list.length, i)); setPos(0); } else { setOrder(list.map((_, k) => k)); setPos(i); }
-  };
-  const enqueue = (tr: Track, next: boolean) => {
+    if (S.current.prefs.shuffle) { setOrder(shuffled(list.length, i)); setPos(0); } else { setOrder(list.map((_, k) => k)); setPos(i); }
+  }, []);
+  const enqueue = useCallback((tr: Track, next: boolean) => {
     const { queue: q, order: o, pos: p } = S.current;
     if (!q.length) { play([tr], 0); return; }
     setQueue([...q, tr]);
     const at = next ? p + 1 : o.length;
     setOrder([...o.slice(0, at), q.length, ...o.slice(at)]);
-  };
+  }, []);
 
   /** Позиция следующего трека. manual — нажатие «вперёд» (повтор одного трека тогда не действует). -1 = очередь кончилась. */
   const nextPos = (manual: boolean) => {
@@ -155,7 +178,7 @@ export default function App() {
     try {
       const pf = S.current.prefs;
       const tastes = waveSeed.current ?? pf.tastes;
-      const artists = waveSeed.current ? [] : pf.artists;
+      const artists = waveArtists.current ?? (waveSeed.current ? [] : pf.artists);
       const r = await api.echoMixFull(qualityFormat(pf.quality), seedFor(tastes, artists), pf.diversity, pf.langStrict);
       const have = new Set(S.current.queue.map((x) => x.id));
       const more = r.tracks.filter((x) => !have.has(x.id));
@@ -168,11 +191,12 @@ export default function App() {
     } catch (e) { setErr(String(e)); return 0; }
     finally { waveBusy.current = false; }
   };
-  const startWave = async (seedTastes?: string[]) => {
+  const startWave = async (seedTastes?: string[], seedArtists?: ArtistSeed[]) => {
     waveSeed.current = seedTastes;
+    waveArtists.current = seedArtists;
     const pf = S.current.prefs;
     try {
-      const r = await api.echoMixFull(qualityFormat(pf.quality), seedFor(seedTastes ?? pf.tastes, seedTastes ? [] : pf.artists), pf.diversity, pf.langStrict);
+      const r = await api.echoMixFull(qualityFormat(pf.quality), seedFor(seedTastes ?? pf.tastes, seedArtists ?? (seedTastes ? [] : pf.artists)), pf.diversity, pf.langStrict);
       if (!r.tracks.length) { setErr(t.echoEmpty); return; }
       setWave(true);
       play(r.tracks, 0, true);
@@ -198,7 +222,7 @@ export default function App() {
   };
 
   // «Эхо» как бесконечный поток: когда впереди осталось меньше 6 треков, заранее подгружаем следующую порцию
-  const upcoming = order.slice(pos + 1).map((i) => queue[i]);
+  const upcoming = useMemo(() => order.slice(pos + 1).map((i) => queue[i]), [order, pos, queue]);
   useEffect(() => {
     if (!wave || pos < 0 || upcoming.length >= 6 || waveBusy.current || Date.now() < waveRetry.current) return;
     extendWave().then((n) => { if (n === 0) waveRetry.current = Date.now() + 30000; }); // нет новых — не долбим источники чаще раза в 30 с
@@ -216,6 +240,10 @@ export default function App() {
       else if (e.ctrlKey && e.key === "ArrowLeft") skipRef.current(-1);
       else if (e.key === "ArrowUp") { e.preventDefault(); setPrefs({ volume: Math.min(1, p.volume + 0.05) }); }
       else if (e.key === "ArrowDown") { e.preventDefault(); setPrefs({ volume: Math.max(0, p.volume - 0.05) }); }
+      else if (e.ctrlKey && e.code === "KeyF") { e.preventDefault(); setTab("search"); setTimeout(() => document.getElementById("search-input")?.focus(), 50); }
+      else if (!e.ctrlKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) { const ps = psGet(); if (ps.dur) player.current?.seek(Math.min(1, Math.max(0, (ps.pos + (e.key === "ArrowRight" ? 5 : -5)) / ps.dur))); }
+      else if (e.code === "KeyM" && !e.ctrlKey) setPrefs({ volume: p.volume === 0 ? 0.8 : 0 });
+      else if (e.code === "KeyL" && !e.ctrlKey) { const c = S.current.cur; if (c) rateRef.current(c, 1); }
       else if (e.key === "s" && !e.ctrlKey) setPrefs({ shuffle: !p.shuffle });
       else if (e.key === "r" && !e.ctrlKey) setPrefs({ repeat: p.repeat === "off" ? "all" : p.repeat === "all" ? "one" : "off" });
     };
@@ -224,6 +252,7 @@ export default function App() {
   }, []);
   const skipRef = useRef(skip);
   skipRef.current = skip;
+  const rateRef = useRef(rate);
 
   // команды из трея
   useEffect(() => {
@@ -240,20 +269,48 @@ export default function App() {
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const ms = navigator.mediaSession;
-    if (cur) ms.metadata = new MediaMetadata({ title: cur.name, artist: cur.artist, album: cur.album, artwork: cur.image ? [{ src: cur.image }] : [] });
     ms.setActionHandler("play", () => player.current?.toggle());
     ms.setActionHandler("pause", () => player.current?.toggle());
     ms.setActionHandler("nexttrack", () => skipRef.current(1));
     ms.setActionHandler("previoustrack", () => skipRef.current(-1));
+    ms.setActionHandler("seekto", (d) => { const ps = psGet(); if (ps.dur && d.seekTime != null) player.current?.seek(d.seekTime / ps.dur); });
+    // прогресс в системной плашке Windows
+    const id = window.setInterval(() => { const ps = psGet(); if (ps.dur > 0 && ps.pos <= ps.dur) try { ms.setPositionState({ duration: ps.dur, position: ps.pos, playbackRate: 1 }); ms.playbackState = ps.playing ? "playing" : "paused"; } catch { /* нет данных */ } }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    const title = cur ? cur.name + " — " + cur.artist : "Silo Player";
+    document.title = title;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().setTitle(title)).catch(() => {});
+    if (cur && "mediaSession" in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: cur.name, artist: cur.artist, album: cur.album, artwork: cur.image ? [{ src: cur.image }] : [] });
   }, [cur?.id]);
 
-  const View = { home: Home, search: Search, browse: Browse, echo: Echo, liked: Liked, banned: Banned, history: History, playlists: Playlists, downloads: Downloads, import: Import, settings: Settings }[tab];
+  const View = { home: Home, search: Search, browse: Browse, echo: Echo, liked: Liked, banned: Banned, history: History, playlists: Playlists, downloads: Downloads, import: Import, settings: Settings, artist: Artist }[tab];
+  const go = useCallback((k: Tab) => { setTab(k); setErr(""); }, []);
+  const startWaveRef = useRef(startWave);
+  startWaveRef.current = startWave;
+  const radio = useCallback((tr: Track) => { startWaveRef.current(S.current.prefs.tastes, tr.artist ? [{ name: tr.artist, tags: tr.tags.slice(0, 3) }] : undefined); }, []);
+  const openArtist = useCallback((name: string) => { setArtist(name); setTab("artist"); setErr(""); }, []);
+  const stopWave = useCallback(() => setWave(false), []);
+  const ctx = useMemo(() => ({ play, enqueue, cur, ratings, rate, onError: setErr, prefs, setPrefs, resetTaste, wave, startWave: (a?: string[], b?: ArtistSeed[]) => startWaveRef.current(a, b), stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists }),
+    [play, enqueue, cur, ratings, rate, prefs, setPrefs, resetTaste, wave, stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists]);
+  const saveQueue = () => {
+    const list = [cur, ...upcoming].filter(Boolean) as Track[];
+    if (!list.length) return;
+    api.savePlaylist(t.queue + " " + new Date().toLocaleString(), list).then(() => { refreshPlaylists(); setErr(t.queueSaved); }).catch((x) => setErr(String(x)));
+  };
+  const moveQueue = (from: number, to: number) => {
+    if (from === to || from < 0) return;
+    const head = order.slice(0, pos + 1), rest = order.slice(pos + 1);
+    const [m] = rest.splice(from, 1); rest.splice(to, 0, m);
+    setOrder([...head, ...rest]);
+  };
 
   if (!loaded) return null;
   if (!prefs.onboarded) return <><Titlebar /><Onboarding prefs={prefs} done={(x) => { setRedo(false); setPrefs(x); }} startStep={redo ? 1 : 0} /></>;
 
   return (
-    <AppCtx.Provider value={{ play, enqueue, cur, ratings, rate, onError: setErr, prefs, setPrefs, resetTaste, wave, startWave, stopWave: () => setWave(false), upcoming, go: (k) => { setTab(k); setErr(""); } }}>
+    <AppCtx.Provider value={ctx}>
       <Titlebar />
       <div className="app">
         <nav>
@@ -267,9 +324,13 @@ export default function App() {
         {showQ && (
           <aside className="queue">
             <div className="row head"><div className="title"><b>{t.queue}</b><span className="muted">{upcoming.length}</span></div><Btn icon="close" size="sm" label={t.queue} onClick={() => setShowQ(false)} /></div>
+            <div className="row" style={{ gap: 6, margin: "6px 0" }}>
+              <Btn size="sm" onClick={() => setOrder(order.slice(0, pos + 1))}>{t.clearQueue}</Btn>
+              <Btn size="sm" onClick={saveQueue}>{t.saveQueue}</Btn>
+            </div>
             <ul>
               {upcoming.map((tr, i) => (
-                <li key={tr.id + i}>
+                <li key={tr.id + i} draggable onDragStart={() => (dragFrom.current = i)} onDragOver={(e) => e.preventDefault()} onDrop={() => { moveQueue(dragFrom.current, i); dragFrom.current = -1; }} style={{ cursor: "grab" }}>
                   <span onClick={() => setPos(pos + 1 + i)}>{tr.name} <small>{tr.artist}</small></span>
                   <Btn icon="close" size="sm" label={t.removeFromQueue} onClick={() => { const at = pos + 1 + i; setOrder(order.filter((_, k) => k !== at)); }} />
                 </li>

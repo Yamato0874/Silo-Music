@@ -37,7 +37,7 @@ export function Search() {
   return (
     <>
       <form onSubmit={(e) => { e.preventDefault(); go(); }} className="row">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.searchPlaceholder} />
+        <input id="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.searchPlaceholder} />
         <Btn variant="ghost" active={showGenres || tags.length > 0 || !!lang} onClick={() => setShowGenres(!showGenres)}>
           {t.filters}{tags.length + (lang ? 1 : 0) ? ` · ${tags.length + (lang ? 1 : 0)}` : ""}
         </Btn>
@@ -291,7 +291,8 @@ export function Playlists() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [name, setName] = useState("");
   const { play } = useApp();
-  const refresh = () => api.playlists().then(setPls);
+  const { refreshPlaylists } = useApp();
+  const refresh = () => { refreshPlaylists(); return api.playlists().then(setPls); };
   useEffect(() => { refresh(); }, []);
   useEffect(() => { if (sel) api.playlistTracks(sel.id).then(setTracks); }, [sel]);
   return (
@@ -434,5 +435,29 @@ export function Settings() {
       <h3>{t.limitsTitle}</h3>
       <p className="muted">{t.limits}</p>
     </div>
+  );
+}
+
+/** Страница исполнителя: его треки в библиотеке и топ на YouTube (один поиск на исполнителя, кэш 30 дней). */
+export function Artist() {
+  const { artist, onError, startWave, prefs } = useApp();
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [busy, setBusy] = useState(true);
+  useEffect(() => {
+    setBusy(true); setTracks([]);
+    Promise.all([
+      api.searchAll({ query: artist, tags: [], offset: 0, limit: 30, sources: ["local", "jamendo"], langStrict: false }).then((r) => r.tracks).catch(() => [] as Track[]),
+      api.artistTracks(artist).then(([v]) => v).catch(() => [] as Track[]),
+    ]).then(([a, b]) => {
+      const low = artist.toLowerCase();
+      const mine = a.filter((x) => x.artist.toLowerCase().includes(low));
+      const seen = new Set<string>(); setTracks([...mine, ...b].filter((x) => !seen.has(x.id) && !!seen.add(x.id)));
+    }).finally(() => setBusy(false));
+  }, [artist]);
+  return (
+    <>
+      <div className="row head"><h2>{artist}</h2><Btn variant="solid" onClick={() => startWave(prefs.tastes, [{ name: artist, tags: [] }])}>{t.artistRadio}</Btn></div>
+      {busy ? <p className="muted">…</p> : tracks.length ? <TrackList tracks={tracks} /> : <p className="muted">{t.artistNoKey}</p>}
+    </>
   );
 }

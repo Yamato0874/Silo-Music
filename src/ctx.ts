@@ -1,8 +1,8 @@
 import { createContext, useContext } from "react";
-import { Track } from "./api";
+import { ArtistSeed, Playlist, Track } from "./api";
 import { Prefs } from "./prefs";
 
-export type Tab = "home" | "search" | "browse" | "echo" | "liked" | "banned" | "history" | "playlists" | "downloads" | "import" | "settings";
+export type Tab = "home" | "search" | "browse" | "echo" | "liked" | "banned" | "history" | "playlists" | "downloads" | "import" | "settings" | "artist";
 
 export interface Ctx {
   play: (queue: Track[], i: number) => void;
@@ -16,10 +16,18 @@ export interface Ctx {
   resetTaste: (clearGroups: boolean) => void;
   /** «Эхо» — бесконечный поток: сам подгружает новые треки. seed — жанры вкуса для этой волны (по умолчанию — вкусы из настроек). */
   wave: boolean;
-  startWave: (seedTastes?: string[]) => void;
+  startWave: (seedTastes?: string[], seedArtists?: ArtistSeed[]) => void;
   stopWave: () => void;
   upcoming: Track[];
   go: (tab: Tab) => void;
+  /** «Эхо по этому треку»: волна от исполнителя трека */
+  radio: (t: Track) => void;
+  /** страница исполнителя */
+  openArtist: (name: string) => void;
+  artist: string;
+  /** плейлисты держим в одном месте, а не грузим в каждом списке */
+  playlists: Playlist[];
+  refreshPlaylists: () => void;
 }
 export const AppCtx = createContext<Ctx>(null as unknown as Ctx);
 export const useApp = () => useContext(AppCtx);

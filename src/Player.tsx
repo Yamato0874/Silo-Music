@@ -25,6 +25,17 @@ interface Props {
   onEnded(): void; onCrossfaded(): void; onState(s: PState): void; onWarn(m: string): void;
 }
 
+/** Восстановление сессии: следующий трек загрузить на паузе с этой секунды (не играть сам). */
+let hold: { id: string; at: number } | null = null;
+/** Тихий зацикленный звук в главном окне, пока играет встроенный YouTube/SoundCloud: тогда плашка Windows управляет Silo (кнопки «назад/вперёд» не серые). */
+const silent = (() => {
+  const n = 8000, b = new ArrayBuffer(44 + n), v = new DataView(b), w = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  const a = new Audio(URL.createObjectURL(new Blob([b], { type: "audio/wav" }))); a.loop = true; a.volume = 0.01; return a;
+})();
+export const holdNext = (id: string, at: number) => { hold = { id, at }; };
 const isAudio = (t?: Track): boolean => !!t && t.source !== "youtube" && t.source !== "soundcloud";
 const srcOf = (t?: Track) => (t!.source === "local" ? convertFileSrc(t!.audio) : t!.audio);
 
@@ -84,6 +95,7 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     const tr = props.track;
     stopEmbeds();
     // плеер YouTube держит в памяти видео и отдельный процесс: убираем его, когда играет не YouTube
+    if (tr?.source === "soundcloud") hold = null; // виджет SoundCloud начнёт сам
     if (tr?.source !== "youtube" && yt.current) { try { yt.current.destroy(); } catch { /* уже уничтожен */ } yt.current = null; if (ytHost.current) ytHost.current.innerHTML = ""; }
     if (!tr) { A().pause(); B().pause(); return; }
     if (isAudio(tr)) {
@@ -96,7 +108,9 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
       const a = A();
       a.src = srcOf(tr); ids.current[act.current] = tr.id; a.volume = vol();
       fx.current?.ctx.resume();
-      a.play().catch(() => {});
+      const h = hold?.id === tr.id ? hold : null; hold = null;
+      if (h) { const seek = () => { a.currentTime = h.at; }; a.readyState >= 1 ? seek() : a.addEventListener("loadedmetadata", seek, { once: true }); }
+      else a.play().catch(() => {});
       return;
     }
     stopFade();
@@ -104,15 +118,16 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     ids.current = [null, null];
     if (tr.source === "youtube") {
       const vid = tr.id.replace("youtube:", "");
+      const h = hold?.id === tr.id ? hold : null; hold = null;
       loadScript("https://www.youtube.com/iframe_api").then(() => {
         if (P.current.track?.id !== tr.id) return;
-        if (yt.current) { yt.current.loadVideoById(vid); return; }
+        if (yt.current) { if (h) yt.current.cueVideoById({ videoId: vid, startSeconds: h.at }); else yt.current.loadVideoById(vid); return; }
         const host = document.createElement("div");
         ytHost.current!.appendChild(host);
         yt.current = new window.YT.Player(host, {
-          width: "100%", height: "100%", videoId: vid, playerVars: { autoplay: 1, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3, origin: window.location.origin },
+          width: "100%", height: "100%", videoId: vid, playerVars: { autoplay: h ? 0 : 1, start: h ? Math.floor(h.at) : 0, playsinline: 1, rel: 0, fs: 0, iv_load_policy: 3, origin: window.location.origin },
           events: {
-            onReady: (e: any) => { e.target.setVolume(vol() * 100); e.target.playVideo(); },
+            onReady: (e: any) => { e.target.setVolume(vol() * 100); if (!h) e.target.playVideo(); },
             onStateChange: (e: any) => { if (e.data === 0) P.current.onEnded(); },
             onError: () => { P.current.onWarn("YouTube: видео нельзя воспроизвести во встроенном плеере, пропускаю"); P.current.onEnded(); },
           },
@@ -163,8 +178,13 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
 
   // опрос состояния
   useEffect(() => {
-    const id = window.setInterval(() => {
+    // в свёрнутом окне опрашиваем раз в секунду вместо 4 раз (кроссфейд успевает)
+    let id = 0;
+    const loop = () => { tick(); id = window.setTimeout(loop, document.hidden ? 1000 : 250); };
+    const tick = () => {
       const t = P.current.track;
+      const embedOn = !!t && !isAudio(t) && (t.source === "youtube" ? yt.current?.getPlayerState?.() === 1 : scS.current.playing);
+      if (embedOn && silent.paused) silent.play().catch(() => {}); else if (!embedOn && !silent.paused) silent.pause();
       if (!t) { P.current.onState({ playing: false, pos: 0, dur: 0 }); return; }
       if (isAudio(t)) {
         const a = A();
@@ -179,8 +199,9 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
         sc.current.getDuration((d: number) => (scS.current.dur = d / 1000));
         P.current.onState({ ...scS.current });
       }
-    }, 250);
-    return () => clearInterval(id);
+    };
+    loop();
+    return () => clearTimeout(id);
   }, []);
 
   // громкость

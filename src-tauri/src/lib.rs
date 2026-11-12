@@ -31,7 +31,7 @@ fn download_dir(s: &State<App>) -> R<PathBuf> {
     Ok(if d.trim().is_empty() { s.music_dir.clone() } else { PathBuf::from(d) })
 }
 
-const KEYS: [&str; 10] = ["prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx"];
+const KEYS: [&str; 12] = ["prefs", "download_dir", "jamendo_client_id", "youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "mode_youtube", "mode_soundcloud", "google_cse_key", "google_cse_cx", "session", "search_history"];
 
 #[tauri::command]
 fn get_setting(s: State<App>, key: String) -> R<String> {
@@ -763,6 +763,12 @@ async fn download_track(s: State<'_, App>, track: Track) -> R<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // имя в плашке Windows вместо «Неизвестное приложение»: тот же AppUserModelID, что у ярлыка установщика
+    #[cfg(windows)]
+    unsafe {
+        let id: Vec<u16> = "app.silo.player".encode_utf16().chain(std::iter::once(0)).collect();
+        windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(id.as_ptr());
+    }
     tauri::Builder::default()
         // один ПК — один экземпляр: повторный запуск поднимает уже открытое окно
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
