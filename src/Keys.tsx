@@ -42,6 +42,12 @@ const SERVICES: Svc[] = [
     ],
   },
   {
+    id: "listenbrainz", name: "ListenBrainz", url: "https://listenbrainz.org/settings/",
+    fields: [{ key: "listenbrainz_token", ru: "Токен ListenBrainz", en: "ListenBrainz token", secret: true }],
+    why: ["Необязательно. Silo будет отправлять в ваш профиль ListenBrainz, что вы дослушали (скробблинг). Без токена ничего никуда не уходит.", "Optional. Silo will send what you finished listening to your ListenBrainz profile (scrobbling). Without a token nothing is sent."],
+    steps: [["Войдите на listenbrainz.org.", "Откройте Настройки и скопируйте User token."], ["Sign in at listenbrainz.org.", "Open Settings and copy the User token."]],
+  },
+  {
     id: "youtube", name: "YouTube", url: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
     fields: [{ key: "youtube_api_key", ru: "YouTube Data API key", en: "YouTube Data API key", secret: true }],
     why: [
