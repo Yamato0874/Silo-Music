@@ -129,7 +129,7 @@ fn greeting(en: bool) -> &'static str {
 fn day_key(off_days: i64) -> String { let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64 / 86400).unwrap_or(0); (d - off_days).to_string() }
 
 impl SiloApp {
-    pub fn demo_query(&mut self, q: &str) { self.pages.q = q.into(); self.pages.q_changed_at = self.ctx.input(|i| i.time); }
+    pub fn demo_query(&mut self, q: &str) { self.pages.q = q.into(); self.search_go(None, false); }
     pub fn demo_set_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); }
     pub fn demo_first_result(&self) -> Option<Track> { self.pages.res.as_ref().and_then(|r| r.first().cloned()) }
     fn push(&mut self, a: Act) { self.pages.acts.push(a); }
@@ -532,14 +532,14 @@ impl SiloApp {
         if self.pages.q != before { self.pages.q_changed_at = now; self.pages.sug_sel = -1; }
         // подсказки (Deezer) через 0,25 с и поиск при наборе через 0,7 с
         let is_link = q.starts_with("http://") || q.starts_with("https://");
-        if q.chars().count() >= 2 && !is_link && now - self.pages.q_changed_at > 0.25 && self.pages.sug_for != q {
+        if false && self.pages.sug_for != q {
             self.pages.sug_for = q.clone();
             let b = self.be.clone();
             let qq = q.clone();
             self.spawn(async move { be::suggest_tracks(&b, qq).await }, |a, r| { a.pages.sug = r.unwrap_or_default(); });
         }
         if q.chars().count() < 2 { self.pages.sug.clear(); self.pages.sug_for.clear(); }
-        if q.chars().count() >= 3 && now - self.pages.q_changed_at > 0.7 && self.pages.q_auto_done != q && !is_link { self.pages.q_auto_done = q.clone(); self.search_go(None, true); }
+        if false && self.pages.q_auto_done != q { self.pages.q_auto_done = q.clone(); self.search_go(None, true); }
         if self.pages.q_changed_at > 0.0 && now - self.pages.q_changed_at < 1.0 { ui.ctx().request_repaint_after(std::time::Duration::from_millis(120)); }
         // список подсказок под полем
         let mut picked: Option<usize> = None;
@@ -653,17 +653,44 @@ impl SiloApp {
             });
             return;
         }
+        // жанровые кнопки «Для вас» — по-прежнему Jamendo
+        if let Some((t, l)) = by_tags {
+            let p = SearchParams { query: Some(String::new()), tags: t, lang: l, order: None, offset: 0, limit: 20, sources: vec!["jamendo".into()], audio_format: Some(quality_format(&self.prefs.quality)), lang_strict: Some(self.prefs.lang_strict) };
+            self.spawn(async move { be::search_all(&b, p).await.map(|r| (r.tracks, r.errors)) }, move |a, r| a.search_done(my, r));
+            return;
+        }
+        let _ = auto;
+        // текстовый поиск — только YouTube: в режиме yt-dlp через сам yt-dlp (без квоты), иначе YouTube Data API, а без ключа — Piped/Invidious
+        let exe = self.ytdlp_exe();
         let online = self.online;
-        let (tags, lang, sources) = match &by_tags {
-            Some((t, l)) => (t.clone(), l.clone(), vec!["jamendo".to_string()]),
-            None => (self.pages.tags.clone(), (!self.pages.lang.is_empty()).then(|| self.pages.lang.clone()), if !online { vec!["local".into()] } else if auto { vec!["local".into(), "jamendo".into(), "deezer".into()] } else { vec![] }),
-        };
-        let p = SearchParams { query: Some(if by_tags.is_some() { String::new() } else { q }), tags, lang, order: None, offset: 0, limit: 20, sources, audio_format: Some(quality_format(&self.prefs.quality)), lang_strict: Some(self.prefs.lang_strict) };
-        self.spawn(async move { be::search_all(&b, p).await }, move |a, r| {
-            if my != a.pages.seq { return; }
-            a.pages.busy = false;
-            match r { Ok(r) => { a.pages.res = Some(Arc::new(r.tracks)); a.pages.warn = r.errors; if let Some(l) = a.pages.lists.get_mut("search") { l.limit = 100; } } Err(e) => a.err(e) }
-        });
+        self.spawn(async move {
+            let mut out: Vec<Track> = be::db(&b).search_downloads(&q).unwrap_or_default();
+            let mut errs = vec![];
+            if online && !q.is_empty() {
+                let yt: Result<Vec<Track>, String> = if let Some(exe) = exe {
+                    let q2 = q.clone();
+                    tokio::task::spawn_blocking(move || crate::ytdlp::search(&exe, &q2, 20)).await.map_err(|e| e.to_string()).and_then(|x| x)
+                } else {
+                    let key = be::setting(&b, "youtube_api_key").unwrap_or_default();
+                    if !key.trim().is_empty() { be::yt_search(&b, key.trim(), &q, 20, 30 * 86400).await } else {
+                        match silo_core::ytmatch::free_search(&q, 0).await {
+                            Some((_, v)) => Ok(v.iter().map(|c| crate::ytdlp::yt_track(&c.vid, &c.title, &c.channel, c.duration)).collect()),
+                            None => Err("YouTube: нет ключа API, а бесплатные зеркала не ответили. Добавьте ключ в Настройках или включите режим yt-dlp.".into()),
+                        }
+                    }
+                };
+                match yt { Ok(v) => out.extend(v), Err(e) => errs.push(e) }
+            }
+            Ok::<_, String>((out, errs))
+        }, move |a, r| a.search_done(my, r));
+    }
+    fn search_done(&mut self, my: u64, r: Result<(Vec<Track>, Vec<String>), String>) {
+        if my != self.pages.seq { return; }
+        self.pages.busy = false;
+        match r {
+            Ok((mut v, e)) => { be::drop_banned(&self.be, &mut v); self.pages.res = Some(Arc::new(v)); self.pages.warn = e; if let Some(l) = self.pages.lists.get_mut("search") { l.limit = 100; } }
+            Err(e) => self.err(e),
+        }
     }
 
     // ---------- подборки ----------

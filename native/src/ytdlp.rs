@@ -70,3 +70,32 @@ pub fn video_url(exe: &str, vid: &str) -> Result<String, String> {
     if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("yt-dlp").to_string()); }
     String::from_utf8_lossy(&o.stdout).lines().next().map(|x| x.trim().to_string()).filter(|x| x.starts_with("http")).ok_or_else(|| "yt-dlp не вернул ссылку на видео".into())
 }
+
+/// Поиск на YouTube силами yt-dlp (ytsearch): без ключа API и без квоты 100 поисков в сутки.
+pub fn search(exe: &str, q: &str, n: u32) -> Result<Vec<silo_core::model::Track>, String> {
+    let o = cmd(exe)
+        .args(["--flat-playlist", "-J", "--no-warnings", &format!("ytsearch{n}:{q}")])
+        .output()
+        .map_err(|e| format!("yt-dlp не запустился: {e}"))?;
+    if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("yt-dlp").to_string()); }
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).map_err(|e| e.to_string())?;
+    Ok(v["entries"].as_array().cloned().unwrap_or_default().iter().filter_map(|e| {
+        let id = e["id"].as_str()?.to_string();
+        let ch = e["channel"].as_str().or(e["uploader"].as_str()).unwrap_or("").to_string();
+        Some(yt_track(&id, e["title"].as_str().unwrap_or(""), &ch, e["duration"].as_f64().unwrap_or(0.0) as u32))
+    }).collect())
+}
+
+/// Трек YouTube по id видео (обложка — миниатюра видео).
+pub fn yt_track(id: &str, title: &str, channel: &str, dur: u32) -> silo_core::model::Track {
+    let mut t = silo_core::model::Track::stub(&format!("youtube:{id}"), vec![]);
+    let page = format!("https://www.youtube.com/watch?v={id}");
+    t.source = "youtube".into();
+    t.url = page.clone();
+    t.license_url = page;
+    t.name = title.to_string();
+    t.artist = channel.trim_end_matches(" - Topic").to_string();
+    t.image = format!("https://i.ytimg.com/vi/{id}/mqdefault.jpg");
+    t.duration = dur;
+    t
+}
