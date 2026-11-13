@@ -1,0 +1,74 @@
+//! Silo Player — нативная версия: интерфейс на egui поверх общего ядра silo-core, без веб-движка для интерфейса.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod app;
+mod audio;
+mod backend;
+mod demo;
+mod embed;
+mod i18n;
+mod import;
+mod pages;
+mod platform;
+mod shell;
+mod taste;
+mod theme;
+mod video;
+mod widgets;
+mod ytdlp;
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+/// База основной (React) версии: %APPDATA%\app.silo.player\silo.db.
+fn main_db() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("app.silo.player").join("silo.db")).filter(|p| p.exists())
+}
+
+/// Скопировать данные основной версии (её база не меняется: читаем снимок через VACUUM INTO).
+/// force = false — только если своей базы ещё нет (первый запуск); true — положить копию, она подхватится при следующем запуске.
+pub fn copy_main_db(dir: &Path, force: bool) -> Result<bool, String> {
+    let Some(src) = main_db() else { return Ok(false) };
+    let dst = if force { dir.join("pending-import.db") } else { dir.join("silo.db") };
+    if !force && dst.exists() { return Ok(false); }
+    let _ = std::fs::remove_file(&dst);
+    let c = rusqlite::Connection::open_with_flags(&src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
+    c.execute("VACUUM INTO ?1", [dst.to_string_lossy().to_string()]).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn main() {
+    platform::set_app_id();
+    if !platform::single_instance() { return; }
+    let dir = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native");
+    let _ = std::fs::create_dir_all(&dir);
+    // отложенный перенос из основной версии (кнопка в Настройках → Данные)
+    let pending = dir.join("pending-import.db");
+    if pending.exists() {
+        let cur = dir.join("silo.db");
+        let _ = std::fs::create_dir_all(dir.join("backups"));
+        if cur.exists() { let _ = std::fs::copy(&cur, dir.join("backups").join("silo-before-import.db")); }
+        for ext in ["-wal", "-shm"] { let _ = std::fs::remove_file(dir.join(format!("silo.db{ext}"))); }
+        if std::fs::copy(&pending, &cur).is_ok() { let _ = std::fs::remove_file(&pending); }
+    }
+    let _ = copy_main_db(&dir, false);
+    let db = match silo_core::db::Db::open(&dir.join("silo.db")) {
+        Ok(d) => d,
+        Err(e) => { let _ = rfd::MessageDialog::new().set_title("Silo").set_description(format!("Не удалось открыть базу: {e}")).show(); return; }
+    };
+    let backend = Arc::new(backend::App { db: Mutex::new(db), music_dir: dir.join("Music") });
+    let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio");
+    let handle = rt.handle().clone();
+    let hidden = std::env::args().any(|a| a == "--tray");
+    let mut vp = eframe::egui::ViewportBuilder::default()
+        .with_title("Silo Player")
+        .with_inner_size([1180.0, 760.0])
+        .with_min_inner_size([800.0, 560.0])
+        .with_drag_and_drop(true)
+        .with_visible(!hidden);
+    if let Some(icon) = platform::window_icon() { vp = vp.with_icon(icon); }
+    let opts = eframe::NativeOptions { viewport: vp, ..Default::default() };
+    let d2 = dir.clone();
+    let _ = eframe::run_native("Silo Player", opts, Box::new(move |cc| Ok(Box::new(app::SiloApp::new(cc, handle, backend, d2)))));
+    drop(rt);
+}
