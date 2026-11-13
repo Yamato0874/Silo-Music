@@ -683,7 +683,7 @@ impl SiloApp {
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} — {}", c.name, c.artist)));
         self.plat.set_metadata(&c);
         let minimized = self.ctx.input(|i| i.viewport().minimized.unwrap_or(false) || !i.viewport().focused.unwrap_or(true));
-        if self.prefs.notify && minimized && self.notified_for != c.id { self.notified_for = c.id.clone(); crate::platform::notify(&c.name, &c.artist); }
+        let _ = minimized; // уведомлений о треках нет (по просьбе)
         if self.prefs.eq_auto && self.prefs.eq_on {
             for tg in &c.tags { if let Some(n) = crate::taste::search(tg, 1).first() { if let Some(eq) = crate::taste::eq_of(&n.id) { self.prefs.eq = eq.iter().map(|x| *x as f32).collect(); break; } } }
         }

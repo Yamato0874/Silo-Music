@@ -1175,7 +1175,6 @@ impl SiloApp {
                         });
                     });
                     sw(ui, &pal, &mut self.prefs.show_video, crate::i18n::tr("showVideo", en), "");
-                    sw(ui, &pal, &mut self.prefs.notify, crate::i18n::tr("notifyOpt", en), "");
                     sw(ui, &pal, &mut self.prefs.autostart, crate::i18n::tr("autostartOpt", en), "");
                     sw(ui, &pal, &mut self.prefs.tray, crate::i18n::tr("tray", en), "");
                 });
