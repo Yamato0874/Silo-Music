@@ -1586,7 +1586,7 @@ impl SiloApp {
     pub fn onboarding(&mut self, ui: &mut Ui) {
         let pal = self.pal;
         let redo = self.pages.onb_redo;
-        if self.pages.onb_keys.is_none() { self.pages.onb_keys = Some(!redo); if redo { self.pages.onb_step = 1; } }
+        if self.pages.onb_keys.is_none() { let has_key = !be::get_setting(&self.be, "youtube_api_key".into()).unwrap_or_default().trim().is_empty(); self.pages.onb_keys = Some(!redo && !has_key); if redo { self.pages.onb_step = 1; } }
         let en = self.en();
         let area = ui.available_rect_before_wrap();
         let w = 760.0f32.min(area.width() - 40.0);
@@ -1595,6 +1595,8 @@ impl SiloApp {
             ui.horizontal(|ui| {
                 ui.add_space(((area.width() - w) / 2.0).max(0.0));
                 egui::Frame::new().fill(pal.panel).stroke(Stroke::new(1.0, pal.line)).corner_radius(18).inner_margin(28).show(ui, |ui| {
+                    ui.set_width(w - 56.0);
+                    ui.vertical(|ui| {
                     ui.set_width(w - 56.0);
                     if self.pages.onb_keys == Some(true) {
                         ui.label(RichText::new(if en { "Connect music services" } else { "Подключите музыкальные сервисы" }).font(bold(24.0)));
@@ -1670,6 +1672,7 @@ impl SiloApp {
                             });
                         }
                     }
+                    });
                 });
             });
         });

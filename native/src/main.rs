@@ -50,7 +50,8 @@ fn copy_keys(db: &silo_core::db::Db) {
 
 fn main() {
     platform::set_app_id();
-    if !platform::single_instance() { return; }
+    let testing = std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some();
+    if !testing && !platform::single_instance() { return; }
     let dir = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native");
     let _ = std::fs::create_dir_all(&dir);
     // отложенный перенос из основной версии (кнопка в Настройках → Данные)
