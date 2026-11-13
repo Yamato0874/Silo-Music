@@ -669,7 +669,7 @@ impl SiloApp {
                     tokio::task::spawn_blocking(move || crate::ytdlp::search(&exe, &q2, 20)).await.map_err(|e| e.to_string()).and_then(|x| x)
                 } else {
                     let key = be::setting(&b, "youtube_api_key").unwrap_or_default();
-                    if !key.trim().is_empty() { be::yt_search(&b, key.trim(), &q, 20, 30 * 86400).await } else {
+                    if !key.trim().is_empty() && be::ytdlp_mode().is_none() { be::yt_search(&b, key.trim(), &q, 20, 30 * 86400).await } else {
                         match silo_core::ytmatch::free_search(&q, 0).await {
                             Some((_, v)) => Ok(v.iter().map(|c| crate::ytdlp::yt_track(&c.vid, &c.title, &c.channel, c.duration)).collect()),
                             None => Err("YouTube: нет ключа API, а бесплатные зеркала не ответили. Добавьте ключ в Настройках или включите режим yt-dlp.".into()),

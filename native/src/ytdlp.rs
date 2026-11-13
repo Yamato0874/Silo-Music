@@ -99,3 +99,10 @@ pub fn yt_track(id: &str, title: &str, channel: &str, dur: u32) -> silo_core::mo
     t.duration = dur;
     t
 }
+
+/// Запустить yt-dlp с аргументами и разобрать JSON-вывод (-J).
+pub fn json(exe: &str, args: &[String]) -> Result<serde_json::Value, String> {
+    let o = cmd(exe).args(["--no-warnings"]).args(args).output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
+    if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("yt-dlp").to_string()); }
+    serde_json::from_slice(&o.stdout).map_err(|e| e.to_string())
+}

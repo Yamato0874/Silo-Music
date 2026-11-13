@@ -16,11 +16,14 @@ pub fn db<'a>(s: &'a App) -> std::sync::MutexGuard<'a, Db> {
     s.db.lock().unwrap()
 }
 pub fn setting(s: &App, key: &str) -> R<String> {
+    // режим yt-dlp: ключ API не нужен и не используется (запросы идут через yt-dlp)
+    if key == "youtube_api_key" && ytdlp_mode().is_some() { return Ok("yt-dlp".into()); }
     Ok(db(s).get_setting(key).map_err(e)?.unwrap_or_default())
 }
 
 /// Режим сервиса: "api" (поиск по ключам) или "link" (только вставка ссылок). По умолчанию API, если ключи заданы.
 pub fn api_on(s: &App, svc: &str, keys: &[&str]) -> bool {
+    if svc == "youtube" && ytdlp_mode().is_some() { return true; }
     match setting(s, &format!("mode_{svc}")).unwrap_or_default().as_str() {
         "api" => true,
         "link" => false,
@@ -48,7 +51,7 @@ pub fn get_setting(s: &App, key: String) -> R<String> {
     if !KEYS.contains(&key.as_str()) {
         return Err("неизвестная настройка".into());
     }
-    setting(&s, &key)
+    Ok(db(s).get_setting(&key).map_err(e)?.unwrap_or_default())
 }
 pub fn set_setting(s: &App, key: String, value: String) -> R<()> {
     if !KEYS.contains(&key.as_str()) {
@@ -69,6 +72,7 @@ pub fn next_quota_reset(now: i64) -> i64 {
     if t > now { t } else { t + DAY }
 }
 pub fn yt_blocked() -> bool {
+    if ytdlp_mode().is_some() { return false; }
     YT_BLOCK_UNTIL.load(std::sync::atomic::Ordering::Relaxed) > now_s() || YT_USED.load(std::sync::atomic::Ordering::Relaxed) >= YT_SEARCH_LIMIT
 }
 /// Лимит поисков YouTube в сутки (search.list стоит 100 из 10 000 единиц).
@@ -134,8 +138,8 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
                 if fresh >= 4 || yt_blocked() { continue; }
                 fresh += 1;
                 yt_note(s);
-                let Ok(v) = youtube::search(key, a, 10).await.map_err(yt_err) else { continue };
-                let v = youtube::keep_music(key, v).await.unwrap_or_default();
+                let Ok(v) = ytw::search(key, a, 10).await.map_err(yt_err) else { continue };
+                let v = ytw::keep_music(key, v).await.unwrap_or_default();
                 let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
                 v
             }
@@ -176,8 +180,8 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
                 if fresh >= 7 || yt_blocked() { continue; }
                 fresh += 1;
                 yt_note(s);
-                let Ok(v) = youtube::search(key, a, 10).await.map_err(yt_err) else { continue };
-                let v = youtube::keep_music(key, v).await.unwrap_or_default();
+                let Ok(v) = ytw::search(key, a, 10).await.map_err(yt_err) else { continue };
+                let v = ytw::keep_music(key, v).await.unwrap_or_default();
                 let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
                 v
             }
@@ -196,8 +200,8 @@ pub async fn yt_genre_core(s: &App, key: &str, text: &str, region: &str) -> R<Ve
     let v = match hit {
         Some(v) => v,
         None => {
-            let v = youtube::playlist_items(key, &id).await.unwrap_or_default();
-            let mut v = youtube::keep_music(key, v).await.unwrap_or_default();
+            let v = ytw::playlist_items(key, &id).await.unwrap_or_default();
+            let mut v = ytw::keep_music(key, v).await.unwrap_or_default();
             youtube::cap_artist(&mut v, 3);
             let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
             v
@@ -211,7 +215,7 @@ pub async fn yt_genre_core(s: &App, key: &str, text: &str, region: &str) -> R<Ve
 pub async fn yt_chart(s: &App, key: &str, region: &str) -> R<Vec<Track>> {
     let ck = format!("yt:chart2:{region}");
     if let Some(v) = db(s).cache_get(&ck, DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
-    let mut v = youtube::music_chart(key, region).await.map_err(e)?;
+    let mut v = ytw::music_chart(key, region).await.map_err(e)?;
     v.retain(|t| (60..=720).contains(&t.duration));
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
@@ -232,7 +236,7 @@ pub async fn yt_taste_tracks(s: &App, key: &str, region: &str, with_chart: bool)
         let hit: Option<Vec<String>> = db(s).cache_get(&ck, 7 * DAY).map_err(e)?.and_then(|j| serde_json::from_str(&j).ok());
         let chans: Vec<String> = match hit {
             Some(c) => c,
-            None => { let c = youtube::channels_of(key, &ids).await.map_err(e)?; let _ = db(s).cache_put(&ck, &serde_json::to_string(&c).unwrap_or_default()); c }
+            None => { let c = ytw::channels_of(key, &ids).await.map_err(e)?; let _ = db(s).cache_put(&ck, &serde_json::to_string(&c).unwrap_or_default()); c }
         };
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
         let mut picked: Vec<Track> = vec![];
@@ -245,8 +249,8 @@ pub async fn yt_taste_tracks(s: &App, key: &str, region: &str, with_chart: bool)
             let items = match hit {
                 Some(v) => v,
                 // только музыка: проверка категории и длины, результат в кэше на 7 дней
-                None => match youtube::playlist_items(key, &pl).await {
-                    Ok(v) => { let m = youtube::keep_music(key, v).await.unwrap_or_default(); let _ = db(s).cache_put(&pk, &serde_json::to_string(&m).unwrap_or_default()); m }
+                None => match ytw::playlist_items(key, &pl).await {
+                    Ok(v) => { let m = ytw::keep_music(key, v).await.unwrap_or_default(); let _ = db(s).cache_put(&pk, &serde_json::to_string(&m).unwrap_or_default()); m }
                     Err(_) => vec![],
                 },
             };
@@ -265,7 +269,7 @@ pub async fn yt_search(s: &App, key: &str, q: &str, limit: u32, ttl: i64) -> R<V
     if let Some(v) = hit.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
     if yt_blocked() { return Err(YT_QUOTA_MSG.into()); }
     yt_note(s);
-    let v = youtube::search(key, q, limit).await.map_err(yt_err)?;
+    let v = ytw::search(key, q, limit).await.map_err(yt_err)?;
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
@@ -275,7 +279,7 @@ pub async fn yt_search_playlists(s: &App, key: &str, q: &str, ttl: i64) -> R<Vec
     if let Some(v) = hit.and_then(|j| serde_json::from_str::<Vec<PlaylistRef>>(&j).ok()) { return Ok(v); }
     if yt_blocked() { return Err(YT_QUOTA_MSG.into()); }
     yt_note(s);
-    let v = youtube::search_playlists(key, q).await.map_err(yt_err)?;
+    let v = ytw::search_playlists(key, q).await.map_err(yt_err)?;
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
@@ -418,7 +422,7 @@ pub async fn resolve_track(s: &App, track: Track) -> R<Track> {
     yt_used(&s);
     if !key.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) && !yt_blocked() {
         yt_note(&s);
-        match youtube::search(&key, &q, 10).await {
+        match ytw::search(&key, &q, 10).await {
             Ok(v) => if let Some(c) = ytmatch::best(&track, &ytmatch::from_tracks(&v)) {
                 let _ = db(&s).yt_match_put(&track.id, &c.vid, "api");
                 return Ok(as_yt(&c.vid));
@@ -533,8 +537,8 @@ pub async fn artist_tracks(s: &App, artist: String) -> R<(Vec<Track>, bool)> {
     let key = setting(&s, "youtube_api_key")?;
     if key.trim().is_empty() || yt_blocked() { return Ok((vec![], false)); }
     yt_note(&s);
-    let v = youtube::search(&key, &a, 10).await.map_err(yt_err)?;
-    let v = youtube::keep_music(&key, v).await.unwrap_or_default();
+    let v = ytw::search(&key, &a, 10).await.map_err(yt_err)?;
+    let v = ytw::keep_music(&key, v).await.unwrap_or_default();
     let _ = db(&s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok((v, true))
 }
@@ -625,7 +629,7 @@ pub async fn open_playlist(s: &App, id: String, lang: Option<String>) -> R<Vec<T
     let (src, raw) = id.split_once(':').ok_or("плохой id")?;
     let mut v = match src {
         "jamendo" => jamendo::playlist_tracks(&setting(&s, "jamendo_client_id")?, raw).await,
-        "youtube" => youtube::playlist_items(&setting(&s, "youtube_api_key")?, raw).await.map_err(|x| silo_core::Error::Msg(yt_err(x))),
+        "youtube" => ytw::playlist_items(&setting(&s, "youtube_api_key")?, raw).await.map_err(|x| silo_core::Error::Msg(yt_err(x))),
         "soundcloud" => {
             let (i, sec) = (setting(&s, "soundcloud_client_id")?, setting(&s, "soundcloud_client_secret")?);
             soundcloud::playlist_tracks(&i, &sec, raw).await
@@ -908,3 +912,56 @@ pub async fn download_track(s: &App, track: Track) -> R<String> {
     Ok(p)
 }
 
+
+/// Режим «Библиотека yt-dlp»: все запросы к YouTube идут через yt-dlp, ключ API и квота не тратятся.
+/// Some(путь) — режим включён (пустой путь: yt-dlp не найден, тогда YouTube-запросы просто пусты).
+pub static YTDLP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+pub fn ytdlp_mode() -> Option<String> { YTDLP.lock().unwrap().clone() }
+
+/// Обёртки над youtube::*: в режиме yt-dlp — yt-dlp, иначе YouTube Data API.
+pub mod ytw {
+    use silo_core::{model::*, youtube, Result};
+    fn dlp() -> Option<String> { super::ytdlp_mode() }
+    async fn run(exe: String, args: Vec<String>) -> Result<serde_json::Value> {
+        if exe.is_empty() { return Err("yt-dlp не найден".into()); }
+        tokio::task::spawn_blocking(move || crate::ytdlp::json(&exe, &args)).await.map_err(|e| silo_core::Error::Msg(e.to_string()))?.map_err(silo_core::Error::Msg)
+    }
+    fn tracks(v: &serde_json::Value) -> Vec<Track> {
+        v["entries"].as_array().cloned().unwrap_or_default().iter().filter_map(|e| {
+            let id = e["id"].as_str()?;
+            if id.len() != 11 { return None; }
+            let ch = e["channel"].as_str().or(e["uploader"].as_str()).unwrap_or("");
+            Some(crate::ytdlp::yt_track(id, e["title"].as_str().unwrap_or(""), ch, e["duration"].as_f64().unwrap_or(0.0) as u32))
+        }).collect()
+    }
+    pub async fn search(key: &str, q: &str, limit: u32) -> Result<Vec<Track>> {
+        match dlp() { Some(exe) => Ok(tracks(&run(exe, vec!["--flat-playlist".into(), "-J".into(), format!("ytsearch{limit}:{q}")]).await?)), None => youtube::search(key, q, limit).await }
+    }
+    pub async fn keep_music(key: &str, v: Vec<Track>) -> Result<Vec<Track>> {
+        // без API: музыка — то, что по длине похоже на трек
+        match dlp() { Some(_) => Ok(v.into_iter().filter(|t| t.duration == 0 || (60..=720).contains(&t.duration)).collect()), None => youtube::keep_music(key, v).await }
+    }
+    pub async fn playlist_items(key: &str, id: &str) -> Result<Vec<Track>> {
+        match dlp() { Some(exe) => Ok(tracks(&run(exe, vec!["--flat-playlist".into(), "-J".into(), format!("https://www.youtube.com/playlist?list={id}")]).await?)), None => youtube::playlist_items(key, id).await }
+    }
+    pub async fn search_playlists(key: &str, q: &str) -> Result<Vec<PlaylistRef>> {
+        match dlp() {
+            Some(exe) => {
+                let url = format!("https://www.youtube.com/results?search_query={}&sp=EgIQAw%253D%253D", q.replace(' ', "+"));
+                let v = run(exe, vec!["--flat-playlist".into(), "-J".into(), "--playlist-end".into(), "15".into(), url]).await?;
+                Ok(v["entries"].as_array().cloned().unwrap_or_default().iter().filter_map(|e| {
+                    let id = e["id"].as_str()?;
+                    if !(id.starts_with("PL") || id.starts_with("OL") || id.starts_with("RD")) { return None; }
+                    Some(PlaylistRef { id: format!("youtube:{id}"), source: "youtube".into(), title: e["title"].as_str().unwrap_or("").into(), owner: e["channel"].as_str().or(e["uploader"].as_str()).unwrap_or("").into(), image: e["thumbnails"][0]["url"].as_str().unwrap_or("").into(), count: e["playlist_count"].as_u64().unwrap_or(0) as u32 })
+                }).collect())
+            }
+            None => youtube::search_playlists(key, q).await,
+        }
+    }
+    pub async fn channels_of(key: &str, ids: &[String]) -> Result<Vec<String>> {
+        match dlp() { Some(_) => Ok(vec![]), None => youtube::channels_of(key, ids).await }
+    }
+    pub async fn music_chart(key: &str, region: &str) -> Result<Vec<Track>> {
+        match dlp() { Some(_) => Ok(vec![]), None => youtube::music_chart(key, region).await }
+    }
+}

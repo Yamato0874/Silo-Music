@@ -500,7 +500,14 @@ impl SiloApp {
 
     pub fn ytdlp_exe(&self) -> Option<String> {
         if self.prefs.yt_mode != "ytdlp" { return None; }
-        crate::ytdlp::find(&self.prefs.ytdlp_path).map(|p| p.to_string_lossy().to_string())
+        // поиск файла — раз в несколько секунд, а не каждый кадр
+        thread_local! { static C: std::cell::RefCell<(f64, String, Option<String>)> = Default::default(); }
+        let now = self.ctx.input(|i| i.time);
+        C.with(|c| {
+            let mut c = c.borrow_mut();
+            if now - c.0 > 5.0 || c.1 != self.prefs.ytdlp_path || now < c.0 { *c = (now, self.prefs.ytdlp_path.clone(), crate::ytdlp::find(&self.prefs.ytdlp_path).map(|p| p.to_string_lossy().to_string())); }
+            c.2.clone()
+        })
     }
     /// Как играть трек: свой движок или встроенный официальный плеер.
     fn src_for(&self, t: &Track) -> Option<Src> {
@@ -515,6 +522,8 @@ impl SiloApp {
 
     /// Каждый кадр: смена трека, подбор YouTube для Deezer, предзагрузка, события движка, состояние.
     pub fn tick(&mut self) {
+        // режим yt-dlp: ядро ходит в YouTube только через yt-dlp, без ключа и квоты
+        *be::YTDLP.lock().unwrap() = (self.prefs.yt_mode == "ytdlp").then(|| self.ytdlp_exe().unwrap_or_default());
         while let Ok(j) = self.rx.try_recv() { j(self); }
         if let Some(e) = self.embed.as_mut() { e.pump(); }
         let now = self.ctx.input(|i| i.time);
