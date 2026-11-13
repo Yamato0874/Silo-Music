@@ -65,8 +65,12 @@ fn main() {
         .with_inner_size([1180.0, 760.0])
         .with_min_inner_size([800.0, 560.0])
         .with_drag_and_drop(true)
+        // своя тёмная шапка вместо системной рамки Windows
+        .with_decorations(false)
         .with_visible(!hidden);
     if let Some(icon) = platform::window_icon() { vp = vp.with_icon(icon); }
+    // самопроверка: окно за пределами экрана и без кнопки на панели задач, чтобы не мешать
+    if std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some() { vp = vp.with_position([-2600.0, 40.0]).with_taskbar(false); }
     let opts = eframe::NativeOptions { viewport: vp, ..Default::default() };
     let d2 = dir.clone();
     let _ = eframe::run_native("Silo Player", opts, Box::new(move |cc| Ok(Box::new(app::SiloApp::new(cc, handle, backend, d2)))));

@@ -13,10 +13,21 @@ impl Demo {
 
 const STEPS: [(&str, f64); 15] = [
     ("01-home", 6.0), ("02-search", 7.0), ("03-echo", 3.0), ("04-liked", 3.0), ("05-playlists", 3.0), ("06-history", 3.0),
-    ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 4.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0),
+    ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 2.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0),
 ];
 
+/// Замеры: SILO_BENCH=preview|youtube — найти «кино группа крови» и включить превью (свой движок) или полный трек (официальный плеер), звук на нуле.
+pub fn bench(app: &mut SiloApp, ctx: &egui::Context) {
+    let Some(mode) = std::env::var("SILO_BENCH").ok() else { return };
+    let t = ctx.input(|i| i.time);
+    let step = app.bench_step;
+    if step == 0 && t > 1.0 { app.prefs.volume = 0.0; app.set_volume_live(0.0); app.tab = Tab::Search; app.demo_query("кино группа крови"); app.bench_step = 1; }
+    if step == 1 { if let Some(mut tr) = app.demo_first_result() { if mode == "preview" { tr.kind = "preview".into(); } if mode != "idle" { app.play(vec![tr], 0, false); } app.tab = Tab::Home; app.bench_step = 2; } }
+    ctx.request_repaint_after(std::time::Duration::from_millis(200));
+}
+
 pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
+    bench(app, ctx);
     let Some(mut d) = app.demo.take() else { return };
     let now = ctx.input(|i| i.time);
     // готовый снимок
@@ -51,11 +62,13 @@ pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
             "14-preview" => if !d.started {
                 d.started = true;
                 app.prefs.theme = "amber".into();
+                app.stage = true; app.karaoke = true;
                 app.prefs.volume = 0.0; app.set_volume_live(0.0);
                 if let Some(mut t) = app.demo_first_result() { t.kind = "preview".into(); app.play(vec![t], 0, false); }
             },
             "15-youtube" => if !d.started {
                 d.started = true;
+                app.stage = false; app.karaoke = false;
                 app.prefs.show_video = true;
                 app.tab = Tab::Search;
                 if let Some(t) = app.demo_first_result() { app.play(vec![t], 0, false); }

@@ -30,6 +30,8 @@ impl eframe::App for SiloApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
+        // самопроверка: рисовать кадры, даже если окно перекрыто другими окнами
+        if self.demo.is_some() { ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden); }
         self.tick();
         self.plat.set_state(self.ps.playing, self.ps.pos);
     }
@@ -40,6 +42,7 @@ impl eframe::App for SiloApp {
         self.hotkeys(&ctx);
         let pal = self.pal;
         egui::CentralPanel::no_frame().frame(egui::Frame::new().fill(pal.bg)).show(ui, |ui| {
+            egui::Panel::top("titlebar").exact_size(if self.mini { 22.0 } else { 34.0 }).frame(egui::Frame::new().fill(pal.bg)).show_inside(ui, |ui| self.titlebar(ui));
             if !self.prefs.onboarded { self.onboarding(ui); return; }
             if self.mini { self.footer(ui, true); return; }
             egui::Panel::bottom("foot").exact_size(FOOT_H).frame(egui::Frame::new().fill(pal.panel).stroke(Stroke::new(1.0, pal.line))).show_inside(ui, |ui| self.footer(ui, false));
@@ -57,18 +60,21 @@ impl eframe::App for SiloApp {
                     let id = egui::Id::new(("page", self.tab as u8, self.artist.clone()));
                     egui::ScrollArea::vertical().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
                         // страница не шире 1180 px и по центру на широком окне
-                        let avail = ui.available_rect_before_wrap();
-                        let w = (avail.width() - 56.0).min(1180.0).max(200.0);
-                        let x0 = avail.left() + ((avail.width() - w) / 2.0).max(28.0);
-                        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(Pos2::new(x0, avail.top() + 22.0), Vec2::new(w, f32::INFINITY))).layout(Layout::top_down(Align::Min)));
-                        self.page(&mut child);
-                        let h = child.min_rect().height();
-                        ui.allocate_space(Vec2::new(avail.width(), h + 62.0));
+                        let full = ui.available_width();
+                        let w = (full - 56.0).min(1180.0).max(200.0);
+                        let pad = ((full - w) / 2.0).max(28.0);
+                        ui.add_space(22.0);
+                        ui.horizontal_top(|ui| {
+                            ui.add_space(pad);
+                            ui.vertical(|ui| { ui.set_width(w); self.page(ui); });
+                        });
+                        ui.add_space(40.0);
                     });
                 });
                 self.place_embed(main);
             }
         });
+        self.resize_edges(&ctx);
         let acts: Vec<Act> = std::mem::take(&mut self.pages.acts);
         for a in acts { self.apply(a); }
         self.drop_files(&ctx);
@@ -79,6 +85,70 @@ impl eframe::App for SiloApp {
 }
 
 impl SiloApp {
+    /// Тонкая шапка окна: перетаскивание, двойной щелчок — развернуть, свернуть/развернуть/закрыть.
+    fn titlebar(&mut self, ui: &mut Ui) {
+        let pal = self.pal;
+        let r = ui.max_rect();
+        let drag = ui.interact(r, egui::Id::new("tb-drag"), Sense::click_and_drag());
+        let maxed = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+        if drag.drag_started_by(egui::PointerButton::Primary) { ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag); }
+        if drag.double_clicked() { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!maxed)); }
+        if !self.mini {
+            let now = self.cur().map(|c| format!("{} · {}", c.name, c.artist)).unwrap_or_default();
+            paint_icon(ui.painter(), Rect::from_min_size(r.min + Vec2::new(12.0, 10.0), Vec2::splat(15.0)), "echo", pal.acc, false);
+            ui.painter().text(r.min + Vec2::new(34.0, r.height() / 2.0), Align2::LEFT_CENTER, "Silo", bold(13.0), pal.fg);
+            if !now.is_empty() { paint_trunc(ui, r.min + Vec2::new(72.0, r.height() / 2.0 - 8.0), &now, FontId::proportional(12.5), pal.mut_, (r.width() - 260.0).max(50.0), Align2::LEFT_TOP); }
+        }
+        let bw = if self.mini { 34.0 } else { 46.0 };
+        let mut x = r.right() - bw;
+        for (k, ic) in [(2, "close"), (1, if maxed { "restore" } else { "max" }), (0, "min")] {
+            if self.mini && k == 1 { continue; }
+            let br = Rect::from_min_size(Pos2::new(x, r.top()), Vec2::new(bw, r.height()));
+            let resp = ui.interact(br, egui::Id::new(("tb", k)), Sense::click());
+            if resp.hovered() { ui.painter().rect_filled(br, CornerRadius::ZERO, if k == 2 { Color32::from_rgb(0xc4, 0x2b, 0x1c) } else { pal.hover() }); }
+            let c = br.center();
+            let col = if resp.hovered() && k == 2 { Color32::WHITE } else { pal.fg };
+            let st = Stroke::new(1.1, col);
+            let p = ui.painter();
+            match ic {
+                "close" => { p.line_segment([c + Vec2::new(-5.0, -5.0), c + Vec2::new(5.0, 5.0)], st); p.line_segment([c + Vec2::new(5.0, -5.0), c + Vec2::new(-5.0, 5.0)], st); }
+                "max" => { p.rect_stroke(Rect::from_center_size(c, Vec2::splat(10.0)), CornerRadius::ZERO, st, egui::StrokeKind::Inside); }
+                "restore" => { p.rect_stroke(Rect::from_center_size(c + Vec2::new(-1.5, 1.5), Vec2::splat(8.0)), CornerRadius::ZERO, st, egui::StrokeKind::Inside); p.line_segment([c + Vec2::new(-2.5, -4.5), c + Vec2::new(4.5, -4.5)], st); p.line_segment([c + Vec2::new(4.5, -4.5), c + Vec2::new(4.5, 2.5)], st); }
+                _ => { p.line_segment([c + Vec2::new(-5.0, 0.0), c + Vec2::new(5.0, 0.0)], st); }
+            }
+            if resp.clicked() {
+                let cmd = match k { 2 => egui::ViewportCommand::Close, 1 => egui::ViewportCommand::Maximized(!maxed), _ => egui::ViewportCommand::Minimized(true) };
+                ui.ctx().send_viewport_cmd(cmd);
+            }
+            x -= bw;
+        }
+    }
+
+    /// Без системной рамки края окна тянем сами.
+    fn resize_edges(&self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) { return; }
+        let r = ctx.content_rect();
+        let Some(p) = ctx.input(|i| i.pointer.hover_pos()) else { return };
+        let m = 5.0;
+        let (l, rt, t, b) = (p.x < r.left() + m, p.x > r.right() - m, p.y < r.top() + m, p.y > r.bottom() - m);
+        use egui::viewport::ResizeDirection as D;
+        let dir = match (l, rt, t, b) {
+            (true, _, true, _) => Some((D::NorthWest, egui::CursorIcon::ResizeNorthWest)),
+            (_, true, true, _) => Some((D::NorthEast, egui::CursorIcon::ResizeNorthEast)),
+            (true, _, _, true) => Some((D::SouthWest, egui::CursorIcon::ResizeSouthWest)),
+            (_, true, _, true) => Some((D::SouthEast, egui::CursorIcon::ResizeSouthEast)),
+            (true, ..) => Some((D::West, egui::CursorIcon::ResizeWest)),
+            (_, true, ..) => Some((D::East, egui::CursorIcon::ResizeEast)),
+            (_, _, true, _) => Some((D::North, egui::CursorIcon::ResizeNorth)),
+            (_, _, _, true) => Some((D::South, egui::CursorIcon::ResizeSouth)),
+            _ => None,
+        };
+        if let Some((d, cur)) = dir {
+            ctx.set_cursor_icon(cur);
+            if ctx.input(|i| i.pointer.primary_pressed()) { ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(d)); }
+        }
+    }
+
     fn nav(&mut self, ui: &mut Ui, narrow: bool) {
         let pal = self.pal;
         ui.horizontal(|ui| {
@@ -277,8 +347,8 @@ impl SiloApp {
         self.mini = !self.mini;
         let c = &self.ctx;
         if self.mini {
-            c.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(Vec2::new(360.0, 84.0)));
-            c.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(560.0, 84.0)));
+            c.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(Vec2::new(360.0, 106.0)));
+            c.send_viewport_cmd(egui::ViewportCommand::InnerSize(Vec2::new(560.0, 106.0)));
             c.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
         } else {
             c.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::Normal));
@@ -425,6 +495,7 @@ impl SiloApp {
         if self.karaoke && !(self.route == Route::Embed && self.embed.is_some()) {
             self.load_lyrics();
             let pos = self.ps.pos + 0.15;
+            let kp = ui.painter_at(rect);
             if let Some(l) = &self.lyrics {
                 if !l.lines.is_empty() {
                     // подложка для читаемости
@@ -435,15 +506,11 @@ impl SiloApp {
                         m.colored_vertex(shade.left_top(), t); m.colored_vertex(shade.right_top(), t); m.colored_vertex(shade.right_bottom(), b); m.colored_vertex(shade.left_bottom(), b);
                         m.add_triangle(0, 1, 2); m.add_triangle(0, 2, 3); m
                     };
-                    ui.painter().add(mesh);
+                    kp.add(mesh);
                     let lh = (rect.height() / 11.0).clamp(36.0, 64.0);
                     let cur_i = l.lines.iter().rposition(|x| x.0 <= pos);
-                    // плавная прокрутка: доля пути до следующей строки
-                    let fpos = match cur_i {
-                        Some(i) => { let (a, b) = (l.lines[i].0, l.lines.get(i + 1).map(|x| x.0).unwrap_or(l.lines[i].0 + 4.0)); let k = ((pos - a) / (b - a).max(0.3)).clamp(0.0, 1.0) as f32; i as f32 + (k * 3.0).min(1.0) * 0.0 + ease(k) * 0.0 }
-                        None => -1.0,
-                    };
-                    let target = fpos;
+                    // строки плавно едут вверх: текущая строка подъезжает к опорной линии
+                    let target = cur_i.map(|i| i as f32).unwrap_or(-1.0);
                     let anim = ui.ctx().animate_value_with_time(ui.id().with("kara"), target, 0.45);
                     let anchor = rect.top() + rect.height() * 0.72;
                     for (i, (_, text)) in l.lines.iter().enumerate() {
@@ -455,14 +522,14 @@ impl SiloApp {
                         let col = if on { pal.acc } else { Color32::from_white_alpha((235.0 * fade) as u8) };
                         let t = if text.is_empty() { "♪" } else { text.as_str() };
                         let font = if on { bold(size) } else { FontId::proportional(size) };
-                        let g = ui.painter().layout(t.to_string(), font, col, rect.width() * 0.9);
+                        let g = kp.layout(t.to_string(), font, col, rect.width() * 0.9);
                         let p = Pos2::new(rect.center().x - g.size().x / 2.0, y - g.size().y / 2.0);
-                        ui.painter().galley(p + Vec2::new(0.0, 2.0), ui.painter().layout(t.to_string(), if on { bold(size) } else { FontId::proportional(size) }, Color32::from_black_alpha(200), rect.width() * 0.9), Color32::BLACK);
-                        ui.painter().galley(p, g, col);
+                        kp.galley(p + Vec2::new(0.0, 2.0), kp.layout(t.to_string(), if on { bold(size) } else { FontId::proportional(size) }, Color32::from_black_alpha(200), rect.width() * 0.9), Color32::BLACK);
+                        kp.galley(p, g, col);
                     }
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
                 } else if !l.loading {
-                    ui.painter().text(rect.center_bottom() - Vec2::new(0.0, 60.0), Align2::CENTER_CENTER, self.t("noLyrics"), FontId::proportional(16.0), Color32::from_gray(200));
+                    kp.text(rect.center_bottom() - Vec2::new(0.0, 60.0), Align2::CENTER_CENTER, self.t("noLyrics"), FontId::proportional(16.0), Color32::from_gray(200));
                 }
             }
         }
@@ -596,13 +663,12 @@ impl SiloApp {
                 (Ask::Prompt { on_ok, .. }, Some(v)) => on_ok(self, v),
                 _ => {}
             }
-            let acts: Vec<Act> = std::mem::take(&mut self.pages.acts);
+            self.resize_edges(&ctx);
+        let acts: Vec<Act> = std::mem::take(&mut self.pages.acts);
             for a in acts { self.apply(a); }
         }
     }
 }
-
-fn ease(k: f32) -> f32 { k * k * (3.0 - 2.0 * k) }
 
 pub fn src_name(s: &str, en: bool) -> String {
     match s { "jamendo" => "Jamendo", "deezer" => "Deezer", "youtube" => "YouTube", "soundcloud" => "SoundCloud", "ccmixter" => "ccMixter", "archive" => "Internet Archive", "local" => if en { "Downloaded" } else { "Скачано" }, x => x }.to_string()

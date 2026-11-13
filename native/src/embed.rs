@@ -20,6 +20,9 @@ pub struct EmbedState {
 
 pub struct Embed {
     view: WebView,
+    /// скрипты ждут, пока загрузится страница плеера (до этого WebView2 их теряет)
+    queue: Vec<String>,
+    booted: Arc<std::sync::atomic::AtomicBool>,
     _ctx: WebContext,
     pub st: Arc<Mutex<EmbedState>>,
     pub key: String,
@@ -73,6 +76,8 @@ impl Embed {
     pub fn new<W: raw_window_handle::HasWindowHandle>(parent: &W, data_dir: std::path::PathBuf, rect: [f32; 4]) -> Result<Embed, String> {
         let st = Arc::new(Mutex::new(EmbedState::default()));
         let st2 = st.clone();
+        let booted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let b2 = booted.clone();
         let mut ctx = WebContext::new(Some(data_dir));
         let view = WebViewBuilder::new_with_web_context(&mut ctx)
             .with_custom_protocol("silo".into(), |_id, _req: Request<Vec<u8>>| {
@@ -90,15 +95,22 @@ impl Embed {
                     "ready" => s.ready = true,
                     "end" => s.ended = true,
                     "err" => s.error = Some(format!("код {}", v["code"])),
-                    "boot" => s.ready = false,
+                    "boot" => { s.ready = false; b2.store(true, std::sync::atomic::Ordering::SeqCst); }
                     _ => {}
                 }
             })
             .build_as_child(parent)
             .map_err(|e| e.to_string())?;
-        Ok(Embed { view, _ctx: ctx, st, key: String::new() })
+        Ok(Embed { view, queue: vec![], booted, _ctx: ctx, st, key: String::new() })
     }
-    fn js(&self, s: &str) { let _ = self.view.evaluate_script(s); }
+    fn js(&mut self, s: &str) {
+        if self.booted.load(std::sync::atomic::Ordering::SeqCst) { self.pump(); let _ = self.view.evaluate_script(s); } else { self.queue.push(s.to_string()); }
+    }
+    /// Отправить отложенные скрипты, когда страница готова (вызывается каждый кадр).
+    pub fn pump(&mut self) {
+        if self.queue.is_empty() || !self.booted.load(std::sync::atomic::Ordering::SeqCst) { return; }
+        for s in std::mem::take(&mut self.queue) { let _ = self.view.evaluate_script(&s); }
+    }
     pub fn load_youtube(&mut self, vid: &str, start: f64, autoplay: bool, vol: f32) {
         *self.st.lock().unwrap() = EmbedState::default();
         self.key = format!("youtube:{vid}");
@@ -111,13 +123,13 @@ impl Embed {
         let js = format!("(function w(){{if(window.loadSc)loadSc({},{});else setTimeout(w,50);}})()", serde_json::to_string(url).unwrap(), (vol * 100.0) as i32);
         self.js(&js);
     }
-    pub fn play(&self) { self.js("cmd('play')"); }
-    pub fn pause(&self) { self.js("cmd('pause')"); }
-    pub fn seek(&self, sec: f64) { self.js(&format!("cmd('seek',{sec})")); }
-    pub fn volume(&self, v: f32) { self.js(&format!("cmd('vol',{})", (v * 100.0) as i32)); }
-    pub fn rate(&self, r: f32) { self.js(&format!("cmd('rate',{r})")); }
+    pub fn play(&mut self) { self.js("cmd('play')"); }
+    pub fn pause(&mut self) { self.js("cmd('pause')"); }
+    pub fn seek(&mut self, sec: f64) { self.js(&format!("cmd('seek',{sec})")); }
+    pub fn volume(&mut self, v: f32) { self.js(&format!("cmd('vol',{})", (v * 100.0) as i32)); }
+    pub fn rate(&mut self, r: f32) { self.js(&format!("cmd('rate',{r})")); }
     /// Строки караоке: [(секунда, текст)]; on — показывать ли их поверх клипа.
-    pub fn lyrics(&self, lines: &[(f64, String)], on: bool) {
+    pub fn lyrics(&mut self, lines: &[(f64, String)], on: bool) {
         let arr: Vec<(f64, &str)> = lines.iter().map(|(a, b)| (*a, b.as_str())).collect();
         self.js(&format!("(function w(){{if(window.setLyrics)setLyrics({},{});else setTimeout(w,50);}})()", serde_json::to_string(&arr).unwrap(), on));
     }
