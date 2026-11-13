@@ -6,7 +6,7 @@ export interface Track {
 }
 export interface PlaylistRef { id: string; source: Source; title: string; owner: string; image: string; count: number }
 export interface PlaylistHits { playlists: PlaylistRef[]; errors: string[] }
-export type Source = "jamendo" | "youtube" | "soundcloud" | "local" | "ccmixter" | "archive";
+export type Source = "jamendo" | "deezer" | "youtube" | "soundcloud" | "local" | "ccmixter" | "archive";
 export interface Playlist { id: number; name: string; count: number }
 export interface SearchParams { query?: string; tags: string[]; lang?: string; order?: string; offset: number; limit: number; sources?: Source[]; audioFormat?: string; langStrict?: boolean }
 export interface EchoOut { tracks: Track[]; missing: string[]; errors: string[] }
@@ -26,6 +26,12 @@ export const api = {
   reorderPlaylist: (id: number, from: number, to: number) => invoke<void>("reorder_playlist", { id, from, to }),
   scanFolder: (path: string) => invoke<number>("scan_folder", { path }),
   linkTrack: (url: string) => invoke<Track>("link_track", { url }),
+  /** Подсказки при вводе (Deezer, без квоты). */
+  suggestTracks: (query: string) => invoke<Track[]>("suggest_tracks", { query }),
+  /** Трек Deezer → видео YouTube (кэш → YouTube API → Piped/Invidious); kind "preview" — нашлось только 30-секундное превью. */
+  resolveTrack: (track: Track) => invoke<Track>("resolve_track", { track }),
+  /** Поисков YouTube за сутки квоты: [потрачено, лимит]. */
+  ytUsage: () => invoke<[number, number]>("yt_usage"),
   searchAll: (params: SearchParams) => invoke<SearchAll>("search_all", { params }),
   rate: (track: Track, value: number) => invoke<void>("rate_track", { track, value }),
   ratings: () => invoke<Record<string, number>>("all_ratings"),

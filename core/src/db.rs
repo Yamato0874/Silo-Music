@@ -78,6 +78,16 @@ impl Db {
         let min_ts = now_secs() as i64 - max_age;
         Ok(self.conn.query_row("SELECT value FROM cache WHERE key=? AND ts>=?", params![key, min_ts], |r| r.get(0)).optional()?)
     }
+    /// Найденное видео YouTube для трека Deezer: повторное воспроизведение не тратит квоту.
+    /// Найденное через YouTube Data API живёт 30 дней (правила API), через Piped/Invidious — без срока.
+    pub fn yt_match_get(&self, track_id: &str) -> Result<Option<String>> {
+        let min_ts = now_secs() as i64 - 30 * 86400;
+        Ok(self.conn.query_row("SELECT video_id FROM yt_match WHERE track_id=? AND (via<>'api' OR ts>=?)", params![track_id, min_ts], |r| r.get(0)).optional()?)
+    }
+    pub fn yt_match_put(&self, track_id: &str, video_id: &str, via: &str) -> Result<()> {
+        self.conn.execute("INSERT OR REPLACE INTO yt_match(track_id,video_id,via,ts) VALUES(?,?,?,?)", params![track_id, video_id, via, now_secs() as i64])?;
+        Ok(())
+    }
     pub fn cache_put(&self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO cache(key,ts,value) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET ts=excluded.ts, value=excluded.value",

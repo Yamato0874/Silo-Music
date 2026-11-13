@@ -3,7 +3,7 @@ import { api, ArtistSeed, Playlist, Track } from "./api";
 import { setLang, t } from "./i18n";
 import { AppCtx, Tab } from "./ctx";
 import { DEFAULTS, Prefs, isTheme, qualityFormat } from "./prefs";
-import Player, { PlayerHandle, analyser, holdNext } from "./Player";
+import Player, { PlayerHandle, analyser, holdNext, rekeyHold } from "./Player";
 import { psGet, psSet, usePs } from "./psStore";
 import { RateButtons } from "./TrackList";
 import { eqOf, migrateTastes, searchNodes, seedFor } from "./tastes";
@@ -215,6 +215,19 @@ export default function App() {
     }).catch((x) => setErr(String(x)));
   }, [setPrefs]);
 
+  // трек Deezer: видео YouTube ищется только сейчас, при запуске (один поиск, повторно — из кэша в базе)
+  useEffect(() => {
+    const tr = cur;
+    if (!tr || tr.source !== "deezer" || tr.kind === "preview") return;
+    let live = true;
+    api.resolveTrack(tr).then((r) => {
+      if (!live) return;
+      if (r.kind === "preview") setErr(t.previewOnly);
+      rekeyHold(tr.id, r.id);
+      setQueue((q) => q.map((x) => (x.id === tr.id ? r : x)));
+    }).catch((x) => { if (live) setErr(String(x)); });
+    return () => { live = false; };
+  }, [cur?.id]);
   const play = useCallback((list: Track[], i: number, keepWave = false) => {
     if (!keepWave) setWave(false); // любой ручной запуск списка выключает бесконечное «Эхо»
     setQueue(list);

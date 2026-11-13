@@ -38,6 +38,8 @@ const silent = (() => {
 /** Анализатор спектра для визуализатора (есть, пока включена цепочка Web Audio). */
 export let analyser: AnalyserNode | null = null;
 export const holdNext = (id: string, at: number) => { hold = { id, at }; };
+/** Трек Deezer превратился в видео YouTube: отложенная позиция переходит к новому id. */
+export const rekeyHold = (from: string, to: string) => { if (hold?.id === from) hold = { id: to, at: hold.at }; };
 const isAudio = (t?: Track): boolean => !!t && t.source !== "youtube" && t.source !== "soundcloud";
 const srcOf = (t?: Track) => (t!.source === "local" ? convertFileSrc(t!.audio) : t!.audio);
 
@@ -100,6 +102,8 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     if (tr?.source === "soundcloud") hold = null; // виджет SoundCloud начнёт сам
     if (tr?.source !== "youtube" && yt.current) { try { yt.current.destroy(); } catch { /* уже уничтожен */ } yt.current = null; if (ytHost.current) ytHost.current.innerHTML = ""; }
     if (!tr) { A().pause(); B().pause(); return; }
+    // трек Deezer ждёт подбора видео YouTube (App), превью играет, только если полной версии нет
+    if (tr.source === "deezer" && tr.kind !== "preview") { A().pause(); B().pause(); ids.current = [null, null]; return; }
     if (isAudio(tr)) {
       if (ids.current[act.current] === tr.id) return; // уже играет (кроссфейд/gapless)
       stopFade();

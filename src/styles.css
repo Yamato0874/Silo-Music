@@ -75,7 +75,17 @@ input[type=checkbox] { accent-color:var(--acc); width:16px; height:16px; }
 .meta b { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .meta span { color:var(--mut); font-size:13px; display:flex; align-items:center; gap:6px; overflow:hidden; white-space:nowrap; }
 .src { font-style:normal; font-size:10px; font-weight:600; letter-spacing:.03em; text-transform:uppercase; padding:1px 6px; border-radius:4px; color:#fff; flex:none; }
-.src.youtube { background:#a12a22; } .src.soundcloud { background:#a65413; } .src.local { background:#2b6e4a; } .src.jamendo { background:#2c4f93; }
+.src.youtube { background:#a12a22; } .src.soundcloud { background:#a65413; } .src.local { background:#2b6e4a; } .src.jamendo { background:#2c4f93; } .src.deezer { background:#6b3fa0; }
+.suggest { position:relative; flex:1; display:flex; }
+.suggest > input { flex:1; }
+.suggest ul { position:absolute; top:100%; left:0; right:0; z-index:20; margin:4px 0 0; padding:4px; list-style:none; background:var(--panel, #1c1c1c); border:1px solid var(--line, #333); border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.35); }
+.suggest li { display:flex; gap:8px; align-items:center; padding:5px 6px; border-radius:6px; cursor:pointer; }
+.suggest li.on, .suggest li:hover { background:var(--hover, rgba(255,255,255,.08)); }
+.suggest li img { width:32px; height:32px; border-radius:4px; object-fit:cover; }
+.suggest li span { display:flex; flex-direction:column; min-width:0; }
+.suggest li b, .suggest li em { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.suggest li em { font-style:normal; opacity:.7; font-size:.9em; }
+.quota { font-size:.85em; opacity:.7; }
 .dur { font-size:13px; font-variant-numeric:tabular-nums; }
 /* действия видны при наведении/фокусе; выставленная оценка видна всегда */
 .acts { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity .12s; }

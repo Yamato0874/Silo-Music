@@ -17,6 +17,8 @@ const D = {
   filter: ["Фильтр по списку", "Filter list"], showMore: ["Показать ещё", "Show more"], speed: ["Скорость", "Speed"], recentQ: ["Недавние запросы", "Recent searches"],
   rename: ["Переименовать", "Rename"], exportPl: ["Копировать список", "Copy list"], copied: ["Список скопирован в буфер обмена", "List copied to clipboard"],
   stats: ["Итоги", "Stats"], month: ["За 30 дней", "Last 30 days"], allTime: ["За всё время", "All time"], hours: ["часов", "hours"], topArtists: ["Топ исполнителей", "Top artists"], topTracks: ["Топ треков", "Top tracks"], mini: ["Мини-плеер", "Mini player"], trackRadio: ["Эхо по этому треку", "Radio from this track"], artistPage: ["Страница исполнителя", "Artist page"], artistRadio: ["Эхо по исполнителю", "Artist radio"],
+  previewOnly: ["Полная версия не нашлась, играет 30-секундный фрагмент Deezer", "Full track not found, playing a 30-second Deezer preview"],
+  ytToday: ["YouTube сегодня", "YouTube today"], ytTodayHint: ["Поисков YouTube за сутки (сброс в 11:00 по Москве). Видео ищется только при запуске трека, повторное воспроизведение берётся из кэша.", "YouTube searches today (resets at 08:00 UTC). A video is searched only when a track starts; replays come from the cache."],
   clearQueue: ["Очистить", "Clear"], saveQueue: ["Сохранить как плейлист", "Save as playlist"], queueSaved: ["Очередь сохранена в плейлисты", "Queue saved to playlists"],
   artistNoKey: ["Нужен ключ YouTube или лимит поисков на сегодня исчерпан", "Needs a YouTube key, or today's search limit is used up"],
   searchPlaceholder: ["Трек, исполнитель или ссылка SoundCloud…", "Track, artist or SoundCloud link…"], find: ["Найти", "Search"],
@@ -111,7 +113,7 @@ export const t = new Proxy({} as Record<K, string>, {
   get: (_, k: string) => ((D as Record<string, readonly [string, string]>)[k]?.[lang === "en" ? 1 : 0] ?? k),
 });
 
-export const srcName = (s: Source | string) => ({ jamendo: "Jamendo", youtube: "YouTube", soundcloud: "SoundCloud", ccmixter: "ccMixter", archive: "Internet Archive", local: lang === "en" ? "Downloaded" : "Скачано" } as Record<string, string>)[s] ?? s;
+export const srcName = (s: Source | string) => ({ jamendo: "Jamendo", deezer: "Deezer", youtube: "YouTube", soundcloud: "SoundCloud", ccmixter: "ccMixter", archive: "Internet Archive", local: lang === "en" ? "Downloaded" : "Скачано" } as Record<string, string>)[s] ?? s;
 
 export const GENRES: [string, string, string][] = FAMILIES.map((f) => [queryTags(f.id)[0], f.ru, f.en]);
 export const genreName = (g: [string, string, string]) => (lang === "en" ? g[2] : g[1]);
