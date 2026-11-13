@@ -52,6 +52,8 @@ pub struct Prefs {
     pub tray: bool,
     /// режим YouTube уже переведён на yt-dlp по умолчанию (однократно)
     pub yt_default_v2: bool,
+    /// апскейл звука: 0 нет, 1 слабый, 2 средний, 3 сильный
+    pub upscale: u8,
 }
 impl Default for Prefs {
     fn default() -> Self {
@@ -59,7 +61,7 @@ impl Default for Prefs {
             shuffle: false, repeat: "off".into(), autoplay: true, crossfade: 0.0, gapless: true, normalize: false, eq_on: false, eq: vec![0.0; 10],
             quality: "normal".into(), theme: "amber".into(), lang: "ru".into(), volume: 0.8, onboarded: false, diversity: "balanced".into(), tastes: vec![], artists: vec![],
             show_video: false, lang_strict: true, rate: 1.0, notify: true, autostart: false, eq_auto: false,
-            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, tray: true, yt_default_v2: true,
+            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, tray: true, yt_default_v2: true, upscale: 0,
         }
     }
 }
@@ -491,7 +493,7 @@ impl SiloApp {
         let p = &self.prefs;
         let mut eq = [0f32; 10];
         for (i, v) in p.eq.iter().take(10).enumerate() { eq[i] = *v; }
-        self.eng.set_fx(Fx { eq_on: p.eq_on, eq, normalize: p.normalize });
+        self.eng.set_fx(Fx { eq_on: p.eq_on, eq, normalize: p.normalize, upscale: p.upscale });
         self.eng.set_crossfade(p.crossfade, p.gapless);
         self.eng.set_speed(if p.rate > 0.0 { p.rate } else { 1.0 });
     }

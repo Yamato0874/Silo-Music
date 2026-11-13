@@ -16,8 +16,8 @@
  ],
  [
   "ytModeEmbed",
-  "Чистый YouTube (официальный плеер, по умолчанию)",
-  "Pure YouTube (official player, default)"
+  "Чистый YouTube (официальный плеер)",
+  "Pure YouTube (official player)"
  ],
  [
   "ytModeEmbedHint",
@@ -26,8 +26,8 @@
  ],
  [
   "ytModeDlp",
-  "Библиотека yt-dlp (без плеера)",
-  "yt-dlp library (no player)"
+  "Библиотека yt-dlp (основной режим)",
+  "yt-dlp library (main mode)"
  ],
  [
   "ytModeDlpHint",

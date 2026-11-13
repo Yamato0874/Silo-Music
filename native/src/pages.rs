@@ -1222,6 +1222,13 @@ impl SiloApp {
             }
             "sound" => {
                 card(ui, &pal, ui.available_width(), |ui| {
+                    set_row(ui, &pal, if en { "Audio upscaling" } else { "Апскейл звука" }, if en { "Weak: high-quality resampler and a gentle exciter that restores highs cut by compression, in real time. Medium and Strong (neural, offline with cache) are coming." } else { "Слабый: качественный пересэмплер и мягкий эксайтер, возвращает верх, срезанный сжатием, в реальном времени. Средний и Сильный (нейросеть, заранее с кэшем) — в разработке." }, |ui| {
+                        for (v, ru, enl) in [(3u8, "Сильный", "Strong"), (2, "Средний", "Medium"), (1, "Слабый", "Weak"), (0, "Нет", "Off")] {
+                            let r = btn_sized(ui, &pal, V::Chip, None, if en { enl } else { ru }, self.prefs.upscale == v, 28.0, v <= 1);
+                            if v > 1 { r.clone().on_hover_text(if en { "In development" } else { "В разработке" }); }
+                            if r.clicked() { self.prefs.upscale = v; }
+                        }
+                    });
                     sw(ui, &pal, &mut self.prefs.normalize, crate::i18n::tr("normalize", en), crate::i18n::tr("normalizeHint", en));
                     sw(ui, &pal, &mut self.prefs.eq_on, crate::i18n::tr("eqOn", en), "");
                     let on = self.prefs.eq_on;
@@ -1279,7 +1286,7 @@ impl SiloApp {
         let en = self.en();
         h3(ui, &pal, self.t("ytMode"));
         card(ui, &pal, ui.available_width(), |ui| {
-            for (m, k, h) in [("embed", "ytModeEmbed", "ytModeEmbedHint"), ("ytdlp", "ytModeDlp", "ytModeDlpHint")] {
+            for (m, k, h) in [("ytdlp", "ytModeDlp", "ytModeDlpHint"), ("embed", "ytModeEmbed", "ytModeEmbedHint")] {
                 let on = self.prefs.yt_mode == m;
                 ui.horizontal(|ui| {
                     if ui.radio(on, RichText::new(crate::i18n::tr(k, en)).strong()).clicked() { self.prefs.yt_mode = m.into(); }

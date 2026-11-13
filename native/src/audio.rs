@@ -84,6 +84,8 @@ pub struct Fx {
     pub eq_on: bool,
     pub eq: [f32; 10],
     pub normalize: bool,
+    /// апскейл: 0 нет, 1 слабый (sinc-пересэмплер + эксайтер), 2 средний, 3 сильный (пока как слабый)
+    pub upscale: u8,
 }
 
 struct Fade { len: u64, done: u64 }
@@ -103,6 +105,8 @@ struct Shared {
     events: Sender<Event>,
     repaint: Mutex<Option<Box<dyn Fn() + Send>>>,
     device_lost: AtomicBool,
+    /// качественный пересэмплер (апскейл)
+    hq: AtomicBool,
 }
 
 /// Публичный «пульт» движка.
@@ -138,6 +142,7 @@ impl Engine {
             events: tx,
             repaint: Mutex::new(None),
             device_lost: AtomicBool::new(false),
+            hq: AtomicBool::new(false),
         });
         let s2 = sh.clone();
         // поток-владелец устройства вывода: при отключении наушников пересоздаёт поток на новом устройстве
@@ -304,11 +309,13 @@ struct Mixer {
     fx_ver: u64,
     comp_env: f32,
     gain: f32,
+    /// эксайтер: полоса выше ~4,5 кГц → мягкое насыщение → снова фильтр (только новые гармоники)
+    exc: [[Biquad; 2]; 2],
 }
 
 impl Mixer {
     fn new(sh: Arc<Shared>) -> Mixer {
-        Mixer { sh, out: vec![], tmp: vec![], eq: [[Biquad::default(); 2]; 10], fx: Fx::default(), fx_ver: 0, comp_env: 0.0, gain: 0.0 }
+        Mixer { sh, out: vec![], tmp: vec![], eq: [[Biquad::default(); 2]; 10], fx: Fx::default(), fx_ver: 0, comp_env: 0.0, gain: 0.0, exc: [[Biquad::default(); 2]; 2] }
     }
     fn pull(deck: &Deck, dst: &mut [f32]) -> usize {
         let Ok(mut b) = deck.buf.try_lock() else { return 0 };
@@ -391,6 +398,8 @@ impl Mixer {
                     let g = if self.fx.eq_on { self.fx.eq[i] } else { 0.0 };
                     for c in 0..2 { self.eq[i][c].set(kind, *fq, g, 1.1, rate as f32); }
                 }
+                for c in 0..2 { self.exc[0][c].set(3, 4500.0, 0.0, 0.707, rate as f32); self.exc[1][c].set(3, 6000.0, 0.0, 0.707, rate as f32); }
+                self.sh.hq.store(self.fx.upscale > 0, Relaxed);
             }
         }
         let eq_on = self.fx.eq_on && self.fx.eq.iter().any(|g| g.abs() > 0.01);
@@ -402,6 +411,14 @@ impl Mixer {
             let (mut l, mut r) = (self.out[i * 2], self.out[i * 2 + 1]);
             if eq_on {
                 for b in self.eq.iter_mut() { l = b[0].run(l); r = b[1].run(r); }
+            }
+            if self.fx.upscale > 0 {
+                // мягкий эксайтер: добавляет верхние гармоники, которые срезает сжатие mp3/aac
+                let amt = match self.fx.upscale { 1 => 0.10, 2 => 0.14, _ => 0.18 };
+                let (hl, hr) = (self.exc[0][0].run(l), self.exc[0][1].run(r));
+                let (sl, sr) = ((hl * 4.0).tanh() * 0.25, (hr * 4.0).tanh() * 0.25);
+                l += self.exc[1][0].run(sl) * amt * 4.0;
+                r += self.exc[1][1].run(sr) * amt * 4.0;
             }
             if self.fx.normalize {
                 let lv = l.abs().max(r.abs());
@@ -450,6 +467,12 @@ impl Biquad {
                     b0 = a * ((a + 1.0) + (a - 1.0) * cw + sa); b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cw); b2 = a * ((a + 1.0) + (a - 1.0) * cw - sa);
                     a0 = (a + 1.0) - (a - 1.0) * cw + sa; a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cw); a2 = (a + 1.0) - (a - 1.0) * cw - sa;
                 }
+            }
+            3 => {
+                // фильтр верхних частот
+                let alpha = sw / (2.0 * q);
+                b0 = (1.0 + cw) / 2.0; b1 = -(1.0 + cw); b2 = (1.0 + cw) / 2.0;
+                a0 = 1.0 + alpha; a1 = -2.0 * cw; a2 = 1.0 - alpha;
             }
             _ => {
                 let alpha = sw / (2.0 * q);
@@ -679,7 +702,7 @@ fn decode(sh: &Shared, deck: &Deck, src: Src, rt: &tokio::runtime::Handle) -> Re
             st.push(l); st.push(r);
         }
         res.clear();
-        rs.process(&st, rate_in.max(1), out_rate, &mut res);
+        if sh.hq.load(Relaxed) { rs.process_sinc(&st, rate_in.max(1), out_rate, &mut res); } else { rs.process(&st, rate_in.max(1), out_rate, &mut res); }
         let speed = f32_load(&deck.speed);
         let out: &Vec<f32> = if (speed - 1.0).abs() > 0.01 { fin.clear(); ws.process(&res, speed, out_rate, &mut fin); &fin } else { &res };
         deck.buf.lock().unwrap().extend(out.iter().copied());
@@ -688,8 +711,35 @@ fn decode(sh: &Shared, deck: &Deck, src: Src, rt: &tokio::runtime::Handle) -> Re
 
 /// Пересэмплирование кубической интерполяцией (стерео, чередование каналов).
 #[derive(Default)]
-struct Resampler { pos: f64, hist: [[f32; 2]; 3] }
+struct Resampler { pos: f64, hist: [[f32; 2]; 3], sinc_hist: Vec<f32>, spos: f64 }
 impl Resampler {
+    /// Апскейл «Слабый»: оконный sinc (Ланцош, 16 точек) — чище верх, без «звона» кубической интерполяции.
+    fn process_sinc(&mut self, inp: &[f32], from: u32, to: u32, out: &mut Vec<f32>) {
+        const A: isize = 8;
+        self.sinc_hist.extend_from_slice(inp);
+        let n = (self.sinc_hist.len() / 2) as isize;
+        let step = from as f64 / to as f64;
+        let cutoff = if to < from { to as f64 / from as f64 } else { 1.0 };
+        let h = &self.sinc_hist;
+        if self.spos < A as f64 { self.spos = A as f64; }
+        while self.spos < (n - A - 1) as f64 {
+            let c = self.spos.floor() as isize;
+            let frac = self.spos - c as f64;
+            let (mut l, mut r, mut wsum) = (0.0f64, 0.0f64, 0.0f64);
+            for k in (-A + 1)..=A {
+                let x = (k as f64 - frac) * cutoff;
+                let w = if x.abs() < 1e-9 { 1.0 } else { let px = std::f64::consts::PI * x; (px.sin() / px) * ((px / A as f64).sin() / (px / A as f64)) };
+                let j = ((c + k) * 2) as usize;
+                l += h[j] as f64 * w; r += h[j + 1] as f64 * w; wsum += w;
+            }
+            let g = if wsum.abs() > 1e-9 { 1.0 / wsum } else { 1.0 };
+            out.push((l * g) as f32); out.push((r * g) as f32);
+            self.spos += step;
+        }
+        let drop = (self.spos.floor() as isize - A).max(0) as usize;
+        self.sinc_hist.drain(..drop * 2);
+        self.spos -= drop as f64;
+    }
     fn process(&mut self, inp: &[f32], from: u32, to: u32, out: &mut Vec<f32>) {
         if from == to { out.extend_from_slice(inp); return; }
         let step = from as f64 / to as f64;
