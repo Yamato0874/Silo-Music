@@ -32,6 +32,9 @@ impl eframe::App for SiloApp {
         }
         // самопроверка: рисовать кадры, даже если окно перекрыто другими окнами
         if self.demo.is_some() { ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden); }
+        // в фоне (игра, другое окно) почти не рисуем
+        let bg = ctx.input(|i| !i.viewport().focused.unwrap_or(true) || i.viewport().minimized.unwrap_or(false));
+        crate::widgets::BG.store(bg && self.demo.is_none(), std::sync::atomic::Ordering::Relaxed);
         self.tick();
         self.plat.set_state(self.ps.playing, self.ps.pos);
     }
@@ -208,7 +211,7 @@ impl SiloApp {
         if let Some(c) = &cur {
             let cs = if mini { 56.0 } else { 56.0 };
             let (cr, resp) = lu.allocate_exact_size(Vec2::splat(cs), Sense::click());
-            if self.viz { self.paint_viz(&lu, cr); } else { paint_cover(&lu, &pal, &self.imgs, &c.image, cr, 8); }
+            if self.viz && !BG.load(std::sync::atomic::Ordering::Relaxed) { self.paint_viz(&lu, cr); } else { paint_cover(&lu, &pal, &self.imgs, &c.image, cr, 8); }
             if resp.on_hover_text(self.t("vizToggle")).clicked() { self.viz = !self.viz; }
             lu.add_space(10.0);
             let w = (left.width() - cs - 130.0).max(60.0);
@@ -301,7 +304,7 @@ impl SiloApp {
         paint_track(ui, &pal, bar, f, resp.hovered() || resp.dragged(), resp.id);
         ui.painter().text(Pos2::new(center.left() + tw - 8.0, by), Align2::RIGHT_CENTER, fmt_time(shown), FontId::proportional(12.0), pal.mut_);
         ui.painter().text(Pos2::new(center.right() - tw + 8.0, by), Align2::LEFT_CENTER, fmt_time(dur), FontId::proportional(12.0), pal.mut_);
-        if ps.playing { ui.ctx().request_repaint_after(std::time::Duration::from_millis(33)); }
+        if ps.playing { repaint(ui.ctx(), 40); }
     }
 
     pub fn rate_buttons(&mut self, ui: &mut Ui, t: &Track) {
@@ -340,7 +343,7 @@ impl SiloApp {
             let h = (rect.height() - 6.0) * m;
             ui.painter().rect_filled(Rect::from_min_max(Pos2::new(rect.left() + k as f32 * w + 1.0, rect.bottom() - 3.0 - h), Pos2::new(rect.left() + (k + 1) as f32 * w - 1.0, rect.bottom() - 3.0)), CornerRadius::same(1), pal.acc);
         }
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+        repaint(ui.ctx(), 40);
     }
 
     fn toggle_mini(&mut self) {
@@ -527,7 +530,7 @@ impl SiloApp {
                         kp.galley(p + Vec2::new(0.0, 2.0), kp.layout(t.to_string(), if on { bold(size) } else { FontId::proportional(size) }, Color32::from_black_alpha(200), rect.width() * 0.9), Color32::BLACK);
                         kp.galley(p, g, col);
                     }
-                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                    repaint(ui.ctx(), 33);
                 } else if !l.loading {
                     kp.text(rect.center_bottom() - Vec2::new(0.0, 60.0), Align2::CENTER_CENTER, self.t("noLyrics"), FontId::proportional(16.0), Color32::from_gray(200));
                 }
@@ -537,7 +540,7 @@ impl SiloApp {
         let cr = Rect::from_min_size(rect.right_top() + Vec2::new(-46.0, 12.0), Vec2::splat(34.0));
         let mut c = ui.new_child(egui::UiBuilder::new().max_rect(cr));
         if !(self.route == Route::Embed && self.embed.is_some()) && icon_btn(&mut c, &pal, "close", 34.0, false, "Esc").clicked() { self.stage = false; self.karaoke = false; }
-        if self.ps.playing { ui.ctx().request_repaint_after(std::time::Duration::from_millis(33)); }
+        if self.ps.playing { repaint(ui.ctx(), 40); }
     }
 
     // ---------- перетаскивание файлов в окно ----------

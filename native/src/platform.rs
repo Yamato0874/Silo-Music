@@ -127,7 +127,7 @@ fn make_hotkeys(tx: &Sender<Cmd>, ctx: &egui::Context) -> Option<global_hotkey::
 
 pub fn notify(title: &str, body: &str) {
     let (t, b) = (title.to_string(), body.to_string());
-    std::thread::spawn(move || { let _ = notify_rust::Notification::new().summary(&t).body(&b).show(); });
+    std::thread::spawn(move || { let _ = notify_rust::Notification::new().app_id("app.silo.player.native").summary(&t).body(&b).show(); });
 }
 
 /// Автозапуск с Windows (в трее): ключ Run в реестре текущего пользователя.
@@ -183,8 +183,27 @@ fn single_instance_listener(on: impl Fn()) {
     }
 }
 
+/// Уведомления от имени Silo (а не Windows PowerShell): регистрируем AppUserModelID с именем и значком.
+pub fn register_app_id(dir: &std::path::Path) {
+    use windows_sys::Win32::System::Registry::*;
+    let icon = dir.join("icon.png");
+    if !icon.exists() { let _ = std::fs::write(&icon, include_bytes!("../../app-icon.png")); }
+    unsafe {
+        let mut hk: HKEY = std::ptr::null_mut();
+        let key = wide(r"Software\Classes\AppUserModelId\app.silo.player.native");
+        if RegCreateKeyExW(HKEY_CURRENT_USER, key.as_ptr(), 0, std::ptr::null(), 0, KEY_SET_VALUE, std::ptr::null(), &mut hk, std::ptr::null_mut()) != 0 { return; }
+        for (n, v) in [("DisplayName", "Silo Player".to_string()), ("IconUri", icon.display().to_string())] {
+            let (n, v) = (wide(n), wide(&v));
+            RegSetValueExW(hk, n.as_ptr(), 0, REG_SZ, v.as_ptr() as *const u8, (v.len() * 2) as u32);
+        }
+        RegCloseKey(hk);
+    }
+}
+
 /// Имя в плашке Windows вместо «Неизвестное приложение».
 pub fn set_app_id() {
+    // фоновые задачи уступают играм; звук играет в своём потоке с высоким приоритетом
+    unsafe { windows_sys::Win32::System::Threading::SetPriorityClass(windows_sys::Win32::System::Threading::GetCurrentProcess(), windows_sys::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS); }
     let id = wide("app.silo.player.native");
     unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(id.as_ptr()); }
 }

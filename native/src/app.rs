@@ -50,6 +50,8 @@ pub struct Prefs {
     pub ytdlp_path: String,
     pub ytdlp_video: bool,
     pub tray: bool,
+    /// режим YouTube уже переведён на yt-dlp по умолчанию (однократно)
+    pub yt_default_v2: bool,
 }
 impl Default for Prefs {
     fn default() -> Self {
@@ -57,7 +59,7 @@ impl Default for Prefs {
             shuffle: false, repeat: "off".into(), autoplay: true, crossfade: 0.0, gapless: true, normalize: false, eq_on: false, eq: vec![0.0; 10],
             quality: "normal".into(), theme: "amber".into(), lang: "ru".into(), volume: 0.8, onboarded: false, diversity: "balanced".into(), tastes: vec![], artists: vec![],
             show_video: false, lang_strict: true, rate: 1.0, notify: true, autostart: false, eq_auto: false,
-            yt_mode: "embed".into(), ytdlp_path: String::new(), ytdlp_video: true, tray: true,
+            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, tray: true, yt_default_v2: true,
         }
     }
 }
@@ -183,6 +185,8 @@ impl SiloApp {
         eng.set_repaint(Box::new(move || c2.request_repaint()));
         let (tx, rx) = std::sync::mpsc::channel();
         let prefs: Prefs = be::get_setting(&be, "prefs".into()).ok().and_then(|x| serde_json::from_str(&x).ok()).unwrap_or_default();
+        let mut prefs = prefs;
+        if !prefs.yt_default_v2 { prefs.yt_mode = "ytdlp".into(); prefs.yt_default_v2 = true; }
         let pal = Pal::get(&prefs.theme);
         pal.apply(&ctx);
         let plat = crate::platform::Platform::new(cc, &ctx);
@@ -591,7 +595,7 @@ impl SiloApp {
         self.toasts.retain(|t| t.until > now);
         // видео: включено/выключено
         self.sync_video();
-        if self.ps.playing { self.ctx.request_repaint_after(std::time::Duration::from_millis(250)); }
+        if self.ps.playing { crate::widgets::repaint(&self.ctx, 500); }
     }
 
     fn save_session(&mut self) {

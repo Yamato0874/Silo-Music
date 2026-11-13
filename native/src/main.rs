@@ -54,6 +54,7 @@ fn main() {
     if !testing && !platform::single_instance() { return; }
     let dir = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native");
     let _ = std::fs::create_dir_all(&dir);
+    platform::register_app_id(&dir);
     // отложенный перенос из основной версии (кнопка в Настройках → Данные)
     let pending = dir.join("pending-import.db");
     if pending.exists() {

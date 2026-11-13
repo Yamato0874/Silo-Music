@@ -506,11 +506,7 @@ impl SiloApp {
         let en = self.en();
         let now = ui.input(|i| i.time);
         if self.pages.recent.is_none() { self.pages.recent = Some(be::get_setting(&self.be, "search_history".into()).ok().and_then(|x| serde_json::from_str(&x).ok()).unwrap_or_default()); }
-        if now - self.pages.usage_at > 15.0 { self.pages.usage_at = now; self.pages.usage = Some(be::yt_usage(&self.be)); }
-        let usage = self.pages.usage;
-        page_head(ui, &pal, self.t("search"), "", |ui| {
-            if let Some((u, l)) = usage { ui.label(RichText::new(format!("{}: {u}/{l}", crate::i18n::tr("ytToday", en))).color(pal.mut_).size(12.5)).on_hover_text(crate::i18n::tr("ytTodayHint", en)); }
-        });
+        page_head(ui, &pal, self.t("search"), "", |_| {});
         let before = self.pages.q.clone();
         let mut submit = false;
         let field_rect;
@@ -600,6 +596,7 @@ impl SiloApp {
         if self.pages.res.is_none() && !self.pages.busy {
             let recent = self.pages.recent.clone().unwrap_or_default();
             if !recent.is_empty() {
+                let _ = now;
                 let mut clear = false;
                 section_head(ui, &pal, self.t("recentQ"), |ui| { if btn_sm(ui, &pal, V::Ghost, None, crate::i18n::tr("clear", en), false).clicked() { clear = true; } });
                 if clear { self.save_recent(vec![]); }

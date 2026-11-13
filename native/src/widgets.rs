@@ -9,6 +9,13 @@ use crate::theme::{mix, paint_icon, Pal};
 #[derive(Clone, Copy, PartialEq)]
 pub enum V { Ghost, Solid, Primary, Chip, Danger, Nav }
 
+/// Окно в фоне (не в фокусе или свёрнуто): перерисовка не чаще раза в секунду, чтобы не мешать играм.
+pub static BG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn repaint(ctx: &egui::Context, ms: u64) {
+    let ms = if BG.load(std::sync::atomic::Ordering::Relaxed) { ms.max(1000) } else { ms.max(40) };
+    ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+}
+
 /// Кнопка-иконка (квадратная, прозрачная, подсветка при наведении).
 pub fn icon_btn(ui: &mut Ui, pal: &Pal, icon: &str, size: f32, active: bool, tip: &str) -> Response {
     let (rect, r) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
@@ -164,7 +171,7 @@ pub fn paint_spinner(ui: &Ui, pal: &Pal, rect: Rect) {
     let r = rect.width() / 2.0 - 2.0;
     let pts: Vec<Pos2> = (0..=24).map(|k| { let a = t * 5.0 + k as f32 / 24.0 * 4.7; c + Vec2::new(a.cos(), a.sin()) * r }).collect();
     ui.painter().add(egui::Shape::line(pts, Stroke::new(2.2, pal.acc)));
-    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+    repaint(ui.ctx(), 40);
 }
 
 /// Заголовок страницы с пояснением; действия справа добавляет `actions`.
@@ -221,7 +228,7 @@ pub fn skeleton_rows(ui: &mut Ui, pal: &Pal, n: usize) {
         p.rect_filled(Rect::from_min_size(rect.min + Vec2::new(60.0, 14.0), Vec2::new(rect.width() * (0.3 + (i * 17 % 40) as f32 / 100.0), 10.0)), CornerRadius::same(4), c);
         p.rect_filled(Rect::from_min_size(rect.min + Vec2::new(60.0, 32.0), Vec2::new(rect.width() * (0.18 + (i * 11 % 20) as f32 / 100.0), 9.0)), CornerRadius::same(4), c);
     }
-    ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+    repaint(ui.ctx(), 60);
 }
 
 /// Поле ввода в рамке с иконкой.
@@ -257,7 +264,7 @@ pub fn bars(ui: &Ui, pal: &Pal, rect: Rect, playing: bool) {
         let x = rect.left() + rect.width() * (0.2 + 0.3 * k as f32);
         p.rect_filled(Rect::from_min_max(Pos2::new(x - 1.5, rect.bottom() - h), Pos2::new(x + 1.5, rect.bottom())), CornerRadius::same(1), pal.acc);
     }
-    if playing { ui.ctx().request_repaint_after(std::time::Duration::from_millis(50)); }
+    if playing { repaint(ui.ctx(), 60); }
 }
 
 // ---------- обложки: загрузка по сети в фоне, уменьшение, кэш текстур ----------
