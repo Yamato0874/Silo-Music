@@ -75,7 +75,9 @@ impl Db {
         // индексы под Эхо, историю и итоги; кэш старше 31 дня не нужен (правила YouTube API — 30 дней)
         let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts); CREATE INDEX IF NOT EXISTS plays_track ON plays(track_id); CREATE INDEX IF NOT EXISTS ratings_ts ON ratings(ts);
             DELETE FROM cache WHERE ts < strftime('%s','now') - 31*86400; PRAGMA optimize;");
-        Ok(Self { conn })
+        let db = Self { conn };
+        db.migrate_secrets();
+        Ok(db)
     }
 
     /// Кэш ответов внешних API (экономия квоты YouTube). max_age — секунды.
@@ -103,13 +105,33 @@ impl Db {
         Ok(())
     }
 
+    /// Ключи сервисов хранятся зашифрованными (DPAPI) и расшифровываются при чтении.
+    /// Если расшифровать не удалось (база перенесена на другой ПК или учётную запись), ключ считается пустым, запись в базе не трогается.
+    /// Миграция: открытые ключи из старых версий перешифровываются при первом запуске.
+    /// Каждый ключ проверяется обратной расшифровкой; при сбое остаётся как был, данные не теряются.
+    fn migrate_secrets(&self) {
+        for k in crate::secret::SECRET_KEYS {
+            let raw: Option<String> = self.conn.query_row("SELECT value FROM settings WHERE key=?", [k], |r| r.get(0)).optional().ok().flatten();
+            let Some(v) = raw.filter(|v| !v.is_empty() && !crate::secret::is_protected(v)) else { continue };
+            if let Some(p) = crate::secret::protect(&v).filter(|p| crate::secret::unprotect(p).as_deref() == Some(v.as_str())) {
+                let _ = self.conn.execute("UPDATE settings SET value=? WHERE key=?", [p.as_str(), k]);
+            }
+        }
+    }
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        Ok(self
-            .conn
-            .query_row("SELECT value FROM settings WHERE key=?", [key], |r| r.get(0))
-            .optional()?)
+        let v: Option<String> = self.conn.query_row("SELECT value FROM settings WHERE key=?", [key], |r| r.get(0)).optional()?;
+        Ok(match v {
+            Some(x) if crate::secret::is_secret(key) => Some(crate::secret::unprotect(&x).unwrap_or_default()),
+            other => other,
+        })
     }
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let enc;
+        let value = if crate::secret::is_secret(key) {
+            // шифруем, только если обратная расшифровка даёт то же самое; иначе храним как есть
+            enc = crate::secret::protect(value).filter(|p| crate::secret::unprotect(p).as_deref() == Some(value));
+            enc.as_deref().unwrap_or(value)
+        } else { value };
         self.conn.execute(
             "INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             [key, value],
@@ -352,6 +374,17 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn secrets_migrate_and_read() {
+        let d = Db::memory().unwrap();
+        d.conn.execute("INSERT INTO settings(key,value) VALUES('youtube_api_key','plain-key')", []).unwrap();
+        d.migrate_secrets();
+        assert_eq!(d.get_setting("youtube_api_key").unwrap().as_deref(), Some("plain-key"));
+        d.set_setting("youtube_api_key", "new-key").unwrap();
+        assert_eq!(d.get_setting("youtube_api_key").unwrap().as_deref(), Some("new-key"));
+        let raw: String = d.conn.query_row("SELECT value FROM settings WHERE key='youtube_api_key'", [], |r| r.get(0)).unwrap();
+        if cfg!(windows) { assert!(raw.starts_with("dpapi:")); }
+    }
     #[test]
     fn yt_match_roundtrip() {
         let d = Db::memory().unwrap();

@@ -8,6 +8,7 @@ pub fn http() -> reqwest::Client {
         .build().expect("http client")).clone()
 }
 pub mod db;
+pub mod secret;
 pub mod jamendo;
 pub mod model;
 pub mod soundcloud;
