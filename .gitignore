@@ -20,3 +20,4 @@ v.err
 .vscode/
 .idea/
 Thumbs.dbtarget-native/
+native/installer/bin/
