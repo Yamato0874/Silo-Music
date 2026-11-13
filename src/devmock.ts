@@ -37,6 +37,9 @@ const handlers: Record<string, (a: any) => unknown> = {
   artist_tracks: () => [list(15, 7), true],
   lyrics: () => ["[00:10.00]Первая строка песни\n[00:20.00]Вторая строка\n[00:40.00]Третья строка, подлиннее остальных\n[00:50.00]Четвёртая", ""],
   suggest_artists: () => ARTISTS.map((name) => ({ name, tags: [], source: "musicbrainz", image: "", note: "" })),
+  suggest_tracks: (a) => list(6, a.query.length).map((x) => ({ ...x, source: "deezer" })),
+  yt_usage: () => [37, 100],
+  resolve_track: (a) => ({ ...a.track, source: "youtube", id: "youtube:" + a.track.id }),
   "plugin:event|listen": () => 1,
   "plugin:window|is_maximized": () => false,
 };

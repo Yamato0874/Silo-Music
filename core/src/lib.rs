@@ -19,6 +19,8 @@ pub mod opencat;
 pub mod lbradio;
 pub mod lrclib;
 pub mod langfilter;
+pub mod deezer;
+pub mod ytmatch;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

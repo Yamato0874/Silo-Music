@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { api, Playlist, PlaylistRef, Track } from "./api";
 import { GENRES, LANGS, genreName, srcName, t } from "./i18n";
 import { useApp } from "./ctx";
@@ -33,7 +33,30 @@ export function Search() {
     const v = x.trim(); if (!v || /^https?:/i.test(v)) return;
     saveRecent([v, ...recent.filter((r) => r.toLowerCase() !== v.toLowerCase())].slice(0, 10));
   };
-  // поиск при наборе: через 0,7 с библиотека и Jamendo; YouTube (100 поисков в день) только по Enter или «Найти»
+  // подсказки при вводе (Deezer, без квоты) и счётчик поисков YouTube за сутки
+  const [sug, setSug] = useState<Track[]>([]);
+  const [sel, setSel] = useState(-1);
+  const [usage, setUsage] = useState<[number, number] | null>(null);
+  useEffect(() => {
+    const tick = () => api.ytUsage().then((u) => u && setUsage(u)).catch(() => {});
+    tick(); const id = window.setInterval(tick, 15000); return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    const s = q.trim(); setSel(-1);
+    if (s.length < 2 || /^https?:/i.test(s) || !navigator.onLine) { setSug([]); return; }
+    let live = true;
+    const h = setTimeout(() => api.suggestTracks(s).then((v) => live && setSug(v ?? [])).catch(() => live && setSug([])), 250);
+    return () => { live = false; clearTimeout(h); };
+  }, [q]);
+  const pick = (k: number) => { const tr = sug[k]; if (!tr) return; setSug([]); remember(`${tr.artist} ${tr.name}`); play(sug, k); };
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key === "Escape") { if (sug.length) { ev.preventDefault(); setSug([]); } else if (q) { ev.preventDefault(); reset(); } return; }
+    if (!sug.length) return;
+    if (ev.key === "ArrowDown") { ev.preventDefault(); setSel((sel + 1) % sug.length); }
+    else if (ev.key === "ArrowUp") { ev.preventDefault(); setSel(sel <= 0 ? sug.length - 1 : sel - 1); }
+    else if (ev.key === "Enter" && sel >= 0) { ev.preventDefault(); pick(sel); }
+  };
+  // поиск при наборе: через 0,7 с библиотека, Jamendo и Deezer; видео YouTube ищется только при запуске трека
   useEffect(() => {
     const s = q.trim();
     if (s.length < 3) return;
@@ -46,21 +69,32 @@ export function Search() {
     return !o && /^https?:\/\/(www\.|m\.|on\.|music\.)?(soundcloud\.com|youtube\.com|youtu\.be)\//i.test(q.trim())
       ? api.linkTrack(q.trim()).then((tr) => { setRes([tr]); setWarn([]); setSearched(true); play([tr], 0); }).catch((e) => onError(String(e))).finally(done)
       : api.searchAll({ query: o ? "" : q, tags: o ? o.tags : tags, lang: (o ? o.lang : lang) || undefined, offset: 0, limit: 20,
-      sources: !navigator.onLine ? ["local"] : o ? ["jamendo"] : auto ? ["local", "jamendo"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
+      sources: !navigator.onLine ? ["local"] : o ? ["jamendo"] : auto ? ["local", "jamendo", "deezer"] : [], audioFormat: qualityFormat(prefs.quality), langStrict: prefs.langStrict })
       .then((r) => { if (my !== seq.n) return; setRes(r.tracks); setWarn(r.errors); setSearched(true); }).catch((e) => onError(String(e))).finally(done);
   };
   const nFilters = tags.length + (lang ? 1 : 0);
-  const reset = () => { seq.n++; setQ(""); setRes([]); setWarn([]); setSearched(false); setBusy(false); document.getElementById("search-input")?.focus(); };
+  const reset = () => { seq.n++; setSug([]); setQ(""); setRes([]); setWarn([]); setSearched(false); setBusy(false); document.getElementById("search-input")?.focus(); };
   return (
     <>
-      <PageHead title={t.search} />
-      <form onSubmit={(e) => { e.preventDefault(); remember(q); go(); }} className="row" role="search">
-        <label className="field lg">
+      <PageHead title={t.search}>{usage && <span className="quota" title={t.ytTodayHint}><Icon name="video" size={14} />{t.ytToday}: <b>{usage[0]}</b>/{usage[1]}<i style={{ "--w": Math.min(100, (usage[0] / Math.max(1, usage[1])) * 100) + "%" } as React.CSSProperties} /></span>}</PageHead>
+      <form onSubmit={(e) => { e.preventDefault(); setSug([]); remember(q); go(); }} className="row" role="search">
+        <div className="field lg suggest">
           {busy ? <Spinner size={18} /> : <Icon name="search" size={18} />}
           <input id="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.searchPlaceholder} aria-label={t.search} autoFocus autoComplete="off" spellCheck={false}
-            onKeyDown={(e) => { if (e.key === "Escape" && q) { e.preventDefault(); reset(); } }} />
+            onKeyDown={onKey} onBlur={() => setTimeout(() => setSug([]), 150)} role="combobox" aria-expanded={sug.length > 0} aria-controls="search-sug" aria-activedescendant={sel >= 0 ? "sug-" + sel : undefined} />
           {q && <Btn icon="close" size="sm" className="field-x" label={t.clear} onClick={reset} />}
-        </label>
+          {sug.length > 0 && (
+            <ul role="listbox" id="search-sug">
+              {sug.map((x, k) => (
+                <li key={x.id} id={"sug-" + k} role="option" aria-selected={k === sel} className={k === sel ? "on" : ""} onMouseDown={(ev) => { ev.preventDefault(); pick(k); }}>
+                  <span className="cover"><Cover src={x.image} /></span>
+                  <span className="meta"><b>{x.name}</b><span>{x.artist}{x.album ? " · " + x.album : ""}</span></span>
+                  <Icon name="play" size={14} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <Btn variant="solid" size="lg" icon="settings" active={showGenres || nFilters > 0} aria-expanded={showGenres} onClick={() => setShowGenres(!showGenres)}>
           {t.filters}{nFilters ? ` · ${nFilters}` : ""}
         </Btn>

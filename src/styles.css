@@ -200,7 +200,7 @@ kbd { display:inline-block; min-width:22px; padding:1px 6px; border:1px solid va
 /* источник: спокойная подпись с цветной точкой вместо яркой плашки */
 .src { font-style:normal; font-size:var(--f-xs); font-weight:600; letter-spacing:.02em; color:var(--mut); flex:none; display:inline-flex; align-items:center; gap:5px; padding:1px 7px 1px 6px; border-radius:999px; background:color-mix(in srgb, var(--fg) 6%, transparent); }
 .src::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--mut); }
-.src.youtube::before { background:#e5484d; } .src.soundcloud::before { background:#f5802a; } .src.local::before { background:#3fb27f; } .src.jamendo::before { background:#5b8def; } .src.ccmixter::before { background:#b07cf0; } .src.archive::before { background:#c9a227; }
+.src.youtube::before { background:#e5484d; } .src.soundcloud::before { background:#f5802a; } .src.local::before { background:#3fb27f; } .src.jamendo::before { background:#5b8def; } .src.deezer::before { background:#a45cf0; } .src.ccmixter::before { background:#b07cf0; } .src.archive::before { background:#c9a227; }
 .dur { font-size:13px; font-variant-numeric:tabular-nums; flex:none; min-width:36px; text-align:right; }
 /* действия видны при наведении/фокусе; выставленная оценка видна всегда */
 .acts { display:flex; align-items:center; gap:2px; opacity:0; transition:opacity var(--fast); flex:none; }
@@ -214,6 +214,13 @@ kbd { display:inline-block; min-width:22px; padding:1px 6px; border:1px solid va
 .bars.paused i { animation-play-state:paused; }
 @keyframes bar { 0%, 100% { transform:scaleY(.3); } 50% { transform:scaleY(1); } }
 
+/* подсказки поиска (Deezer) */
+.suggest > ul { position:absolute; top:calc(100% + 6px); left:0; right:0; z-index:20; margin:0; padding:6px; list-style:none; background:var(--raise); border:1px solid var(--line); border-radius:12px; box-shadow:var(--sh-2); animation:pop var(--fast) var(--ease); max-height:min(420px, 60vh); overflow:auto; }
+.suggest li { display:flex; gap:var(--s3); align-items:center; padding:5px 10px 5px 6px; border-radius:8px; cursor:pointer; color:var(--mut); }
+.suggest li .cover { width:36px; height:36px; border-radius:6px; pointer-events:none; } .suggest li .meta b { color:var(--fg); }
+.suggest li > .ico { opacity:0; flex:none; } .suggest li.on, .suggest li:hover { background:var(--hover); } .suggest li.on > .ico, .suggest li:hover > .ico { opacity:1; }
+.quota { position:relative; display:inline-flex; align-items:center; gap:6px; font-size:var(--f-sm); color:var(--mut); padding:5px 10px 7px; border:1px solid var(--line); border-radius:999px; overflow:hidden; cursor:help; }
+.quota b { color:var(--fg); } .quota i { position:absolute; left:0; bottom:0; height:2px; width:var(--w); background:var(--acc); }
 .list-tools { display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s3); }
 .list-tools .field { max-width:320px; } .list-tools .field input { height:32px; font-size:13px; }
 .list-count { color:var(--mut); font-size:var(--f-sm); margin-left:auto; white-space:nowrap; }
