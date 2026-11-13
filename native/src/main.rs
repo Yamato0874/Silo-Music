@@ -37,6 +37,17 @@ pub fn copy_main_db(dir: &Path, force: bool) -> Result<bool, String> {
     Ok(true)
 }
 
+fn copy_keys(db: &silo_core::db::Db) {
+    let Some(src) = main_db() else { return };
+    let Ok(c) = rusqlite::Connection::open_with_flags(&src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) else { return };
+    let keys = ["youtube_api_key", "soundcloud_client_id", "soundcloud_client_secret", "jamendo_client_id", "google_cse_key", "google_cse_cx", "listenbrainz_token", "mode_youtube", "mode_soundcloud"];
+    for k in keys {
+        if let Ok(v) = c.query_row("SELECT value FROM settings WHERE key=?", [k], |r| r.get::<_, String>(0)) {
+            let _ = db.conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)", [k, v.as_str()]);
+        }
+    }
+}
+
 fn main() {
     platform::set_app_id();
     if !platform::single_instance() { return; }
@@ -51,11 +62,13 @@ fn main() {
         for ext in ["-wal", "-shm"] { let _ = std::fs::remove_file(dir.join(format!("silo.db{ext}"))); }
         if std::fs::copy(&pending, &cur).is_ok() { let _ = std::fs::remove_file(&pending); }
     }
-    let _ = copy_main_db(&dir, false);
+    let fresh = !dir.join("silo.db").exists();
     let db = match silo_core::db::Db::open(&dir.join("silo.db")) {
         Ok(d) => d,
         Err(e) => { let _ = rfd::MessageDialog::new().set_title("Silo").set_description(format!("Не удалось открыть базу: {e}")).show(); return; }
     };
+    // первый запуск — с чистого листа: из основной версии переносятся только ключи сервисов
+    if fresh { copy_keys(&db); }
     let backend = Arc::new(backend::App { db: Mutex::new(db), music_dir: dir.join("Music") });
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio");
     let handle = rt.handle().clone();
