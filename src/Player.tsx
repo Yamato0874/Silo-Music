@@ -268,8 +268,10 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
         <iframe key={t.id} title="SoundCloud" allow="autoplay" sandbox="allow-scripts allow-same-origin allow-presentation"
           src={`https://w.soundcloud.com/player/?url=${encodeURIComponent(t.url)}&auto_play=true&visual=false`}
           onLoad={(e) => {
+            const frame = e.currentTarget; // после await currentTarget уже пуст
             loadScript("https://w.soundcloud.com/player/api.js").then(() => {
-              const w = window.SC.Widget(e.currentTarget);
+              if (!frame.isConnected) return;
+              const w = window.SC.Widget(frame);
               sc.current = w; scS.current = { pos: 0, dur: 0, playing: false };
               const E = window.SC.Widget.Events;
               w.bind(E.FINISH, () => P.current.onEnded());

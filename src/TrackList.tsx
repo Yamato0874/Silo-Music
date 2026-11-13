@@ -100,7 +100,7 @@ export default function TrackList(props: { tracks: Track[]; onRemove?: (t: Track
       <div className="list-tools">
         <label className="field"><Icon name="search" size={16} /><input value={f} onChange={(e) => { setF(e.target.value); setLimit(100); }} placeholder={t.filter} aria-label={t.filter} onKeyDown={(e) => { if (e.key === "Escape") setF(""); }} />
           {f && <Btn icon="close" size="sm" className="field-x" label={t.clear} onClick={() => setF("")} />}</label>
-        <span className="list-count">{low ? `${all.length} / ${props.tracks.length}` : listSummary(props.tracks)}</span>
+        {low && <span className="list-count">{all.length} / {props.tracks.length}</span>}
       </div>
     )}
     {!all.length ? <Empty icon="search" title={t.noResults} text={`«${f}»`} /> : (
