@@ -38,6 +38,8 @@ const silent = (() => {
 /** Анализатор спектра для визуализатора (есть, пока включена цепочка Web Audio). */
 export let analyser: AnalyserNode | null = null;
 export const holdNext = (id: string, at: number) => { hold = { id, at }; };
+/** Трек Deezer превратился в видео YouTube: отложенная позиция переходит к новому id. */
+export const rekeyHold = (from: string, to: string) => { if (hold?.id === from) hold = { id: to, at: hold.at }; };
 const isAudio = (t?: Track): boolean => !!t && t.source !== "youtube" && t.source !== "soundcloud";
 const srcOf = (t?: Track) => (t!.source === "local" ? convertFileSrc(t!.audio) : t!.audio);
 
@@ -86,7 +88,7 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     },
     seek(f: number) {
       const t = P.current.track;
-      if (isAudio(t)) { if (A().duration) A().currentTime = f * A().duration; }
+      if (isAudio(t)) { const el = A(); if (el.duration) el.currentTime = f * el.duration; }
       else if (t?.source === "youtube") { const d = yt.current?.getDuration?.(); if (d) yt.current.seekTo(f * d, true); }
       else if (t?.source === "soundcloud") sc.current?.seekTo(f * scS.current.dur * 1000);
     },
@@ -100,6 +102,8 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     if (tr?.source === "soundcloud") hold = null; // виджет SoundCloud начнёт сам
     if (tr?.source !== "youtube" && yt.current) { try { yt.current.destroy(); } catch { /* уже уничтожен */ } yt.current = null; if (ytHost.current) ytHost.current.innerHTML = ""; }
     if (!tr) { A().pause(); B().pause(); return; }
+    // трек Deezer ждёт подбора видео YouTube (App), превью играет, только если полной версии нет
+    if (tr.source === "deezer" && tr.kind !== "preview") { A().pause(); B().pause(); ids.current = [null, null]; return; }
     if (isAudio(tr)) {
       if (ids.current[act.current] === tr.id) return; // уже играет (кроссфейд/gapless)
       stopFade();
@@ -264,8 +268,10 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
         <iframe key={t.id} title="SoundCloud" allow="autoplay" sandbox="allow-scripts allow-same-origin allow-presentation"
           src={`https://w.soundcloud.com/player/?url=${encodeURIComponent(t.url)}&auto_play=true&visual=false`}
           onLoad={(e) => {
+            const frame = e.currentTarget; // после await currentTarget уже пуст
             loadScript("https://w.soundcloud.com/player/api.js").then(() => {
-              const w = window.SC.Widget(e.currentTarget);
+              if (!frame.isConnected) return;
+              const w = window.SC.Widget(frame);
               sc.current = w; scS.current = { pos: 0, dur: 0, playing: false };
               const E = window.SC.Widget.Events;
               w.bind(E.FINISH, () => P.current.onEnded());

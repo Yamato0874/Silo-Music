@@ -1,4 +1,4 @@
-use silo_core::{db::Db, echo, jamendo, lbradio, lrclib, model::*, opencat, soundcloud, youtube};
+use silo_core::{db::Db, deezer, ytmatch, echo, jamendo, lbradio, lrclib, model::*, opencat, soundcloud, youtube};
 use std::collections::HashMap;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{Manager, State};
@@ -70,8 +70,27 @@ fn next_quota_reset(now: i64) -> i64 {
     if t > now { t } else { t + DAY }
 }
 fn yt_blocked() -> bool {
-    YT_BLOCK_UNTIL.load(std::sync::atomic::Ordering::Relaxed) > now_s()
+    YT_BLOCK_UNTIL.load(std::sync::atomic::Ordering::Relaxed) > now_s() || YT_USED.load(std::sync::atomic::Ordering::Relaxed) >= YT_SEARCH_LIMIT
 }
+/// Лимит поисков YouTube в сутки (search.list стоит 100 из 10 000 единиц).
+const YT_SEARCH_LIMIT: u32 = 100;
+static YT_USED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Сутки квоты по тихоокеанскому времени: сброс в 08:00 UTC = 11:00 МСК.
+fn pt_day(now: i64) -> i64 { (now - 8 * 3600).div_euclid(DAY) }
+/// Поисков YouTube за текущие сутки квоты (хранится в базе, переживает перезапуск).
+fn yt_used(s: &State<App>) -> u32 {
+    let n = db(s).cache_get(&format!("yt:used:{}", pt_day(now_s())), 2 * DAY).ok().flatten().and_then(|x| x.parse().ok()).unwrap_or(0);
+    YT_USED.store(n, std::sync::atomic::Ordering::Relaxed);
+    n
+}
+/// Отметить один потраченный поиск YouTube.
+fn yt_note(s: &State<App>) {
+    let n = yt_used(s) + 1;
+    let _ = db(s).cache_put(&format!("yt:used:{}", pt_day(now_s())), &n.to_string());
+    YT_USED.store(n, std::sync::atomic::Ordering::Relaxed);
+}
+#[tauri::command]
+fn yt_usage(s: State<App>) -> (u32, u32) { (yt_used(&s), YT_SEARCH_LIMIT) }
 fn yt_err(x: silo_core::Error) -> String {
     let m = x.to_string();
     if m.to_lowercase().contains("quota") {
@@ -116,6 +135,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str, fav: &[String]) -> Vec
             None => {
                 if fresh >= 4 || yt_blocked() { continue; }
                 fresh += 1;
+                yt_note(s);
                 let Ok(v) = youtube::search(key, a, 10).await.map_err(yt_err) else { continue };
                 let v = youtube::keep_music(key, v).await.unwrap_or_default();
                 let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
@@ -157,6 +177,7 @@ async fn yt_similar_tracks(s: &State<'_, App>, key: &str, fav: &[String]) -> Vec
             None => {
                 if fresh >= 7 || yt_blocked() { continue; }
                 fresh += 1;
+                yt_note(s);
                 let Ok(v) = youtube::search(key, a, 10).await.map_err(yt_err) else { continue };
                 let v = youtube::keep_music(key, v).await.unwrap_or_default();
                 let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
@@ -245,6 +266,7 @@ async fn yt_search(s: &State<'_, App>, key: &str, q: &str, limit: u32, ttl: i64)
     let hit = db(s).cache_get(&ck, ttl).map_err(e)?;
     if let Some(v) = hit.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
     if yt_blocked() { return Err(YT_QUOTA_MSG.into()); }
+    yt_note(s);
     let v = youtube::search(key, q, limit).await.map_err(yt_err)?;
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
@@ -254,6 +276,7 @@ async fn yt_search_playlists(s: &State<'_, App>, key: &str, q: &str, ttl: i64) -
     let hit = db(s).cache_get(&ck, ttl).map_err(e)?;
     if let Some(v) = hit.and_then(|j| serde_json::from_str::<Vec<PlaylistRef>>(&j).ok()) { return Ok(v); }
     if yt_blocked() { return Err(YT_QUOTA_MSG.into()); }
+    yt_note(s);
     let v = youtube::search_playlists(key, q).await.map_err(yt_err)?;
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
@@ -329,11 +352,18 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
             Err(x) => out.errors.push(format!("Jamendo: {x}")),
         }
     }
-    if want("youtube") && !q.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) {
-        let key = setting(&s, "youtube_api_key")?;
-        match yt_search(&s, &key, &q, 15, 30 * DAY).await {
+    // текстовый поиск идёт через Deezer (без ключа и квоты); видео YouTube подбирается только при нажатии play
+    if (want("deezer") || want("youtube")) && !q.trim().is_empty() {
+        match deezer_search(&s, &q, 25).await {
             Ok(v) => out.tracks.extend(v),
-            Err(x) => out.errors.push(x),
+            Err(x) => {
+                out.errors.push(x);
+                // Deezer недоступен: по Enter ищем на YouTube, как раньше (поиск в кэше на 30 дней)
+                if want("youtube") && api_on(&s, "youtube", &["youtube_api_key"]) {
+                    let key = setting(&s, "youtube_api_key")?;
+                    match yt_search(&s, &key, &q, 15, 30 * DAY).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(x) }
+                }
+            }
         }
     }
     if want("soundcloud") && !q.trim().is_empty() && api_on(&s, "soundcloud", &["soundcloud_client_id", "soundcloud_client_secret"]) {
@@ -363,6 +393,57 @@ async fn search_all(s: State<'_, App>, params: SearchParams) -> R<SearchAll> {
         if params.lang_strict != Some(false) { silo_core::langfilter::retain(&mut out.tracks, l); }
     }
     Ok(out)
+}
+/// Поиск Deezer с кэшем на сутки: подсказки и повторные запросы не упираются в лимит 50 запросов за 5 с.
+async fn deezer_search(s: &State<'_, App>, q: &str, limit: u32) -> R<Vec<Track>> {
+    let ck = format!("dz:{limit}:{}", q.trim().to_lowercase());
+    if let Some(v) = db(s).cache_get(&ck, DAY).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
+    let v = deezer::search(q, limit).await.map_err(|x| format!("Deezer: {}", x.to_string().trim_start_matches("Deezer: ")))?;
+    let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
+    Ok(v)
+}
+/// Подсказки при вводе: несколько треков Deezer.
+#[tauri::command]
+async fn suggest_tracks(s: State<'_, App>, query: String) -> R<Vec<Track>> {
+    if query.trim().chars().count() < 2 { return Ok(vec![]); }
+    let mut v = deezer_search(&s, &query, 25).await?;
+    drop_banned(&s, &mut v);
+    v.truncate(6);
+    Ok(v)
+}
+static FREE_START: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Трек Deezer → видео YouTube при нажатии play. Порядок: кэш в базе → YouTube Data API (1 поиск) → Piped/Invidious.
+/// Метаданные (название, исполнитель, обложка, длительность) остаются от Deezer. Не нашлось — играет 30-секундное превью.
+#[tauri::command]
+async fn resolve_track(s: State<'_, App>, track: Track) -> R<Track> {
+    if track.source != "deezer" { return Ok(track); }
+    let as_yt = |vid: &str| { let mut t = track.clone(); t.id = format!("youtube:{vid}"); t.source = "youtube".into(); t.url = format!("https://www.youtube.com/watch?v={vid}"); t.audio = String::new(); t };
+    let hit = db(&s).yt_match_get(&track.id).map_err(e)?;
+    if let Some(vid) = hit { return Ok(as_yt(&vid)); }
+    let q = ytmatch::query(&track);
+    let key = setting(&s, "youtube_api_key")?;
+    yt_used(&s);
+    if !key.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) && !yt_blocked() {
+        yt_note(&s);
+        match youtube::search(&key, &q, 10).await {
+            Ok(v) => if let Some(c) = ytmatch::best(&track, &ytmatch::from_tracks(&v)) {
+                let _ = db(&s).yt_match_put(&track.id, &c.vid, "api");
+                return Ok(as_yt(&c.vid));
+            },
+            Err(x) => { let _ = yt_err(x); }
+        }
+    }
+    // квота кончилась, ключа нет или ничего похожего: бесплатный запасной путь
+    if let Some((i, v)) = ytmatch::free_search(&q, FREE_START.load(std::sync::atomic::Ordering::Relaxed)).await {
+        FREE_START.store(i, std::sync::atomic::Ordering::Relaxed);
+        if let Some(c) = ytmatch::best(&track, &v) {
+            let _ = db(&s).yt_match_put(&track.id, &c.vid, "free");
+            return Ok(as_yt(&c.vid));
+        }
+    }
+    let mut t = track;
+    t.kind = "preview".into();
+    Ok(t)
 }
 /// Ссылка на публичный плейлист (YouTube, SoundCloud, Jamendo) → id для open_playlist.
 #[tauri::command]
@@ -462,6 +543,7 @@ async fn artist_tracks(s: State<'_, App>, artist: String) -> R<(Vec<Track>, bool
     if let Some(v) = hit { return Ok((v, false)); }
     let key = setting(&s, "youtube_api_key")?;
     if key.trim().is_empty() || yt_blocked() { return Ok((vec![], false)); }
+    yt_note(&s);
     let v = youtube::search(&key, &a, 10).await.map_err(yt_err)?;
     let v = youtube::keep_music(&key, v).await.unwrap_or_default();
     let _ = db(&s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
@@ -954,7 +1036,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = ev { api.prevent_close(); let _ = w.hide(); }
         })
         .invoke_handler(tauri::generate_handler![
-            get_setting, set_setting, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, notify, set_autostart, scrobble, reorder_playlist, scan_folder, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
+            get_setting, set_setting, yt_usage, suggest_tracks, resolve_track, open_url, link_track, artist_tracks, lyrics, rename_playlist, stats, notify, set_autostart, scrobble, reorder_playlist, scan_folder, resolve_playlist, search_playlists, open_playlist, save_playlist, history, clear_history, downloads_info, search_tracks, search_all, rate_track, liked_tracks, banned_tracks, reset_taste, all_ratings, record_play, echo_mix, suggest_artists, list_playlists,
             create_playlist, delete_playlist, playlist_tracks, add_to_playlist,
             remove_from_playlist, list_downloads, download_track
         ])

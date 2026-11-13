@@ -5,6 +5,40 @@ let lang: "ru" | "en" = "ru";
 export const setLang = (l: "ru" | "en") => { lang = l; };
 
 const D = {
+  aboutApp: ["О программе", "About"], aboutText: ["Музыкальный плеер с лентой «Эхо». Данные хранятся только на этом компьютере.", "A music player with the Echo stream. Your data stays on this computer."],
+  addedNext: ["Сыграет следующим", "Will play next"], addedQueue: ["Добавлено в очередь", "Added to queue"], addedTo: ["Добавлено в", "Added to"], album: ["Альбом", "Album"], duration: ["Длительность", "Duration"],
+  backupBad: ["Это не файл копии Silo", "Not a Silo backup file"], backupHint: ["Плейлисты, лайки, баны и настройки в одном файле. Ключи сервисов в копию не попадают.", "Playlists, likes, bans and settings in one file. Service keys are not included."],
+  backupImportHint: ["Данные из файла добавятся к текущим, ничего не удаляется.", "Data from the file is added to what you have, nothing is deleted."], backupLikes: ["лайков", "likes"], backupPls: ["плейлистов", "playlists"], backupSaved: ["Копия сохранена в папку загрузок браузера", "Backup saved to the downloads folder"], backupWill: ["Будет добавлено", "This will add"],
+  bannedEmptyT: ["Бан пуст", "Nothing is banned"], bannedEmpty: ["Перечёркнутый круг у трека убирает его из «Эхо», поиска и очереди. Вернуть можно здесь.", "The crossed circle on a track removes it from Echo, search and the queue. You can restore it here."], bannedTracks: ["Забаненные треки", "Banned tracks"],
+  blockedNote: ["Этот исполнитель скрыт из поиска и «Эхо».", "This artist is hidden from search and Echo."], blockedT: ["Больше не рекомендуется", "No longer recommended"], unblocked: ["Снова рекомендуется", "Recommended again"],
+  browseHint: ["Готовые плейлисты Jamendo, YouTube и SoundCloud: откройте, послушайте, сохраните к себе.", "Ready-made playlists from Jamendo, YouTube and SoundCloud: open, listen, save to yours."], browseEmptyT: ["Найдите готовую подборку", "Find a ready-made playlist"], browseEmpty: ["Введите жанр, настроение или название: «lo-fi», «для бега», «русский рок».", "Type a genre, a mood or a name: “lo-fi”, “running”, “indie rock”."],
+  cantUndo: ["Это действие нельзя отменить.", "This cannot be undone."], chooseFile: ["Выбрать файл…", "Choose file…"], clear: ["Очистить", "Clear"], del: ["Удалить", "Delete"],
+  clearHistoryBody: ["Список прослушанного очистится. Модель вкуса, лайки и плейлисты останутся.", "The list of played tracks will be cleared. The taste model, likes and playlists stay."], historyCleared: ["История очищена", "History cleared"],
+  historyHint: ["Всё, что вы слушали, от новых к старым.", "Everything you played, newest first."], historyEmptyT: ["Здесь будет история", "Your history will be here"], historyEmpty: ["Включите любой трек, и он появится в этом списке.", "Play any track and it will show up in this list."],
+  copyName: ["Копировать название", "Copy title"], copiedName: ["Название скопировано", "Title copied"],
+  crossfadeT: ["Кроссфейд", "Crossfade"], crossfadeHint: ["Плавный переход между треками: конец одного накладывается на начало другого.", "A smooth transition: the end of one track overlaps the start of the next."], sec: ["с", "s"], off: ["выкл", "off"],
+  dlEmptyT: ["Скачанного пока нет", "No downloads yet"], dlEmpty: ["Скачивайте треки Jamendo через меню «⋯» или подключите свою папку с музыкой в настройках.", "Download Jamendo tracks from the “⋯” menu or connect your own music folder in settings."], dlFolderT: ["Папка загрузок", "Download folder"],
+  downloadsHint: ["Скачанные треки и файлы из вашей папки. Играют без интернета.", "Downloaded tracks and files from your folder. They play offline."], downloading: ["Скачиваю", "Downloading"], downloaded: ["Скачано", "Downloaded"],
+  echoBuilding: ["Собираю подборку…", "Building your mix…"], echoIdleT: ["Не знаете, что включить?", "Not sure what to play?"], echoIdle: ["Нажмите большую кнопку: Эхо подберёт музыку по вашим жанрам, лайкам и истории.", "Hit the big button: Echo picks music from your genres, likes and history."], playLiked: ["Перемешать понравившиеся", "Shuffle liked"], noLikedYet: ["Пока нет понравившихся треков", "No liked tracks yet"],
+  exportM3u: ["Сохранить как M3U", "Save as M3U"],
+  gNight: ["Доброй ночи", "Good night"], gMorning: ["Доброе утро", "Good morning"], gDay: ["Добрый день", "Good afternoon"], gEvening: ["Добрый вечер", "Good evening"],
+  hShort: ["ч", "h"], mShort: ["мин", "min"],
+  hkPlay: ["Пауза и продолжение", "Play / pause"], hkNext: ["Следующий трек", "Next track"], hkPrev: ["Предыдущий трек", "Previous track"], hkSeek: ["Перемотка на 5 секунд", "Seek 5 seconds"], hkVol: ["Громкость", "Volume"], hkMute: ["Без звука", "Mute"], hkLike: ["Лайк текущему треку", "Like the current track"],
+  hkTabs: ["Разделы по порядку", "Sections in order"], hkGlobal: ["Пауза из любого окна", "Play / pause from any window"], hkGlobalSkip: ["Трек назад и вперёд из любого окна", "Previous / next from any window"], hkRow: ["Играть выбранную строку", "Play the focused row"], hkMenu: ["Меню трека", "Track menu"], hkMove: ["Передвинуть трек в плейлисте или очереди", "Move a track in a playlist or the queue"],
+  likedEmptyT: ["Здесь будут любимые треки", "Your liked tracks will be here"], likedEmpty: ["Ставьте лайк трекам (кнопка с пальцем вверх или клавиша L), и они соберутся в этом списке.", "Like tracks (thumbs-up button or the L key) and they will gather in this list."], unlike: ["Убрать лайк", "Remove like"],
+  listened: ["Прослушано", "Listened"], statsNone: ["Пока нет данных", "No data yet"],
+  noResultsHint: ["Проверьте написание или попробуйте другой запрос.", "Check the spelling or try a different query."], normalizeHint: ["Сглаживает разницу громкости между треками.", "Evens out loudness differences between tracks."],
+  plCreated: ["Плейлист создан", "Playlist created"], plDeleted: ["Плейлист удалён", "Playlist deleted"], plEmptyT: ["В плейлисте пока пусто", "This playlist is empty"], plEmpty: ["Добавляйте треки через меню «⋯» у любого трека: «В плейлист».", "Add tracks from the “⋯” menu on any track: Add to playlist."], plNamePh: ["Например, «Для дороги»", "For example, “Road trip”"],
+  plNone: ["Своих плейлистов пока нет.", "No playlists of your own yet."], plOpenEmpty: ["Не удалось получить треки этой подборки.", "Could not load tracks for this playlist."], plPickT: ["Выберите плейлист", "Pick a playlist"], plPick: ["Слева умные подборки, которые собираются сами, и ваши плейлисты.", "On the left are smart lists that build themselves and your own playlists."], removedFromPl: ["Трек убран из плейлиста", "Track removed from the playlist"], smartEmpty: ["Список наполнится сам, когда появятся прослушивания и лайки.", "This list fills up by itself once you have plays and likes."],
+  resetFilters: ["Сбросить фильтры", "Reset filters"], restored: ["Возвращён", "Restored"], savedToMine: ["Сохранено в «Мои плейлисты»", "Saved to My playlists"],
+  searchEmptyT: ["Что будем слушать?", "What shall we listen to?"], searchEmpty: ["Введите название трека, исполнителя или вставьте ссылку YouTube или SoundCloud.", "Type a track, an artist, or paste a YouTube or SoundCloud link."], searchYtHint: ["При наборе ищем в библиотеке и открытых источниках. Нажмите Enter или «Найти», чтобы искать везде.", "While typing we search the library and open sources. Press Enter or Search to look everywhere."],
+  setLook: ["Оформление", "Appearance"], setTaste: ["Вкусы и Эхо", "Tastes & Echo"], setSound: ["Звук", "Sound"], setData: ["Данные", "Data"], setHelp: ["Справка", "Help"],
+  showAll: ["Все", "Show all"], shufflePlay: ["Играть вперемешку", "Shuffle play"],
+  navListen: ["Слушать", "Listen"], navMine: ["Моя музыка", "My music"], navMore: ["Ещё", "More"], navLabel: ["Разделы", "Sections"], playerLabel: ["Плеер", "Player"],
+  seek: ["Перемотка", "Seek"], nowPlaying: ["Сейчас играет", "Now playing"], nextUp: ["Далее", "Next up"], nothingPlaying: ["Ничего не играет", "Nothing is playing"],
+  queueEmptyT: ["Очередь пуста", "The queue is empty"], queueEmpty: ["Добавляйте треки через меню «⋯» или правой кнопкой мыши: «Играть следующим» и «В очередь».", "Add tracks from the “⋯” menu or with a right click: Play next and Add to queue."],
+  queueCleared: ["Очередь очищена", "Queue cleared"], undo: ["Вернуть", "Undo"], vizToggle: ["Обложка или визуализатор", "Cover or visualizer"], miniOff: ["Обычное окно", "Full window"],
+  dropHere: ["Отпустите файлы, чтобы слушать", "Drop files to play"], dropBad: ["Это не аудиофайлы: подходят mp3, flac, ogg, opus, m4a, wav", "Not audio files: mp3, flac, ogg, opus, m4a, wav are supported"],
   search: ["Поиск", "Search"], browse: ["Подборки", "Playlists"], echo: ["Эхо", "Echo"],
   liked: ["Понравившиеся", "Liked"], banned: ["Бан", "Banned"], history: ["История", "History"], playlists: ["Мои плейлисты", "My playlists"],
   downloads: ["Загрузки", "Downloads"], settings: ["Настройки", "Settings"],
@@ -17,6 +51,8 @@ const D = {
   filter: ["Фильтр по списку", "Filter list"], showMore: ["Показать ещё", "Show more"], speed: ["Скорость", "Speed"], recentQ: ["Недавние запросы", "Recent searches"],
   rename: ["Переименовать", "Rename"], exportPl: ["Копировать список", "Copy list"], copied: ["Список скопирован в буфер обмена", "List copied to clipboard"],
   stats: ["Итоги", "Stats"], month: ["За 30 дней", "Last 30 days"], allTime: ["За всё время", "All time"], hours: ["часов", "hours"], topArtists: ["Топ исполнителей", "Top artists"], topTracks: ["Топ треков", "Top tracks"], mini: ["Мини-плеер", "Mini player"], trackRadio: ["Эхо по этому треку", "Radio from this track"], artistPage: ["Страница исполнителя", "Artist page"], artistRadio: ["Эхо по исполнителю", "Artist radio"],
+  previewOnly: ["Полная версия не нашлась, играет 30-секундный фрагмент Deezer", "Full track not found, playing a 30-second Deezer preview"],
+  ytToday: ["YouTube сегодня", "YouTube today"], ytTodayHint: ["Поисков YouTube за сутки (сброс в 11:00 по Москве). Видео ищется только при запуске трека, повторное воспроизведение берётся из кэша.", "YouTube searches today (resets at 08:00 UTC). A video is searched only when a track starts; replays come from the cache."],
   clearQueue: ["Очистить", "Clear"], saveQueue: ["Сохранить как плейлист", "Save as playlist"], queueSaved: ["Очередь сохранена в плейлисты", "Queue saved to playlists"],
   artistNoKey: ["Нужен ключ YouTube или лимит поисков на сегодня исчерпан", "Needs a YouTube key, or today's search limit is used up"],
   searchPlaceholder: ["Трек, исполнитель или ссылка SoundCloud…", "Track, artist or SoundCloud link…"], find: ["Найти", "Search"],
@@ -111,7 +147,7 @@ export const t = new Proxy({} as Record<K, string>, {
   get: (_, k: string) => ((D as Record<string, readonly [string, string]>)[k]?.[lang === "en" ? 1 : 0] ?? k),
 });
 
-export const srcName = (s: Source | string) => ({ jamendo: "Jamendo", youtube: "YouTube", soundcloud: "SoundCloud", ccmixter: "ccMixter", archive: "Internet Archive", local: lang === "en" ? "Downloaded" : "Скачано" } as Record<string, string>)[s] ?? s;
+export const srcName = (s: Source | string) => ({ jamendo: "Jamendo", deezer: "Deezer", youtube: "YouTube", soundcloud: "SoundCloud", ccmixter: "ccMixter", archive: "Internet Archive", local: lang === "en" ? "Downloaded" : "Скачано" } as Record<string, string>)[s] ?? s;
 
 export const GENRES: [string, string, string][] = FAMILIES.map((f) => [queryTags(f.id)[0], f.ru, f.en]);
 export const genreName = (g: [string, string, string]) => (lang === "en" ? g[2] : g[1]);

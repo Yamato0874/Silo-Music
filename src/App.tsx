@@ -1,59 +1,139 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ArtistSeed, Playlist, Track } from "./api";
-import { setLang, t } from "./i18n";
+import { setLang, srcName, t } from "./i18n";
 import { AppCtx, Tab } from "./ctx";
 import { DEFAULTS, Prefs, isTheme, qualityFormat } from "./prefs";
-import Player, { PlayerHandle, analyser, holdNext } from "./Player";
+import Player, { PlayerHandle, analyser, holdNext, rekeyHold } from "./Player";
 import { psGet, psSet, usePs } from "./psStore";
 import { RateButtons } from "./TrackList";
 import { eqOf, migrateTastes, searchNodes, seedFor } from "./tastes";
 import { Artist, Banned, Browse, Downloads, Echo, History, Home, Liked, Playlists, Search, Settings } from "./views";
-import { Btn } from "./ui";
+import { AskHost, Bars, Btn, Cover, Empty, Icon, IconName, Menu, Slider, Spinner, Toaster, ask, toast } from "./ui";
 import Titlebar from "./Titlebar";
 // редкие экраны грузятся по требованию: меньше стартовый код и память
 const Onboarding = lazy(() => import("./Onboarding"));
 const Import = lazy(() => import("./Import"));
 
-const TABS: Tab[] = ["home", "search", "browse", "echo", "liked", "banned", "history", "playlists", "downloads", "import", "settings"];
+/** Навигация слева: разделы по смыслу, у каждого своя иконка. */
+const NAV: ["navListen" | "navMine" | "navMore", [Exclude<Tab, "artist">, IconName][]][] = [
+  ["navListen", [["home", "home"], ["search", "search"], ["browse", "browse"], ["echo", "echo"]]],
+  ["navMine", [["liked", "heart"], ["playlists", "playlist"], ["downloads", "download"], ["history", "history"]]],
+  ["navMore", [["import", "import"], ["banned", "ban"], ["settings", "settings"]]],
+];
+const TABS: Tab[] = NAV.flatMap(([, items]) => items.map(([k]) => k));
 
 /** Громкость: локальное значение при перетаскивании, наружу отдаём не чаще раза в кадр. */
 function Volume({ value, onChange, live }: { value: number; onChange: (v: number) => void; live: (v: number) => void }) {
   const [local, setLocal] = useState(value);
   const tm = useRef(0);
-  useEffect(() => setLocal(value), [value]);
+  const busy = useRef(false); // пока тянут, внешнее значение не перебивает бегунок
+  useEffect(() => { if (!busy.current) setLocal(value); }, [value]);
+  useEffect(() => () => clearTimeout(tm.current), []);
   return (
-    <input className="vol" type="range" min={0} max={100} aria-label={t.volume} value={local * 100}
-      onChange={(e) => { const v = Number(e.target.value) / 100; setLocal(v); live(v); clearTimeout(tm.current); tm.current = window.setTimeout(() => onChange(v), 200); }} />
+    <Slider className="vol" min={0} max={100} aria-label={t.volume} value={Math.round(local * 100)}
+      onPointerDown={() => (busy.current = true)} onPointerUp={() => (busy.current = false)} onBlur={() => (busy.current = false)}
+      onChange={(x) => { const v = x / 100; setLocal(v); live(v); clearTimeout(tm.current); tm.current = window.setTimeout(() => onChange(v), 250); }}
+      onWheel={(e) => { const v = Math.min(1, Math.max(0, local + (e.deltaY < 0 ? 0.05 : -0.05))); setLocal(v); live(v); onChange(v); }} />
   );
 }
 
 /** Нижняя панель: только она перерисовывается каждый тик воспроизведения. */
 function Transport({ player, skip, prefs, setPrefs }: { player: React.RefObject<PlayerHandle>; skip: (d: 1 | -1) => void; prefs: Prefs; setPrefs: (p: Partial<Prefs>) => void }) {
   const ps = usePs();
-  const [drag, setDrag] = useState<number | null>(null); // значение ползунка, пока его тянут: плеер не дёргаем на каждый пиксель
-  const commit = () => { if (drag !== null) { player.current?.seek(drag / 1000); setDrag(null); } };
   return (
     <div className="transport">
       <div className="ctrls">
         <Btn icon="shuffle" size="sm" label={t.shuffle} active={prefs.shuffle} onClick={() => setPrefs({ shuffle: !prefs.shuffle })} />
         <Btn icon="prev" label={t.prev} onClick={() => skip(-1)} />
-        <Btn icon={ps.playing ? "pause" : "play"} variant="primary" size="lg" className="round" label={ps.playing ? t.pause : t.play} onClick={() => player.current?.toggle()} />
+        <Btn icon={ps.playing ? "pause" : "play"} variant="primary" className="round" label={ps.playing ? t.pause : t.play} onClick={() => player.current?.toggle()} />
         <Btn icon="next" label={t.next} onClick={() => skip(1)} />
         <Btn icon={prefs.repeat === "one" ? "repeatOne" : "repeat"} size="sm" label={t.repeat} active={prefs.repeat !== "off"}
           onClick={() => setPrefs({ repeat: prefs.repeat === "off" ? "all" : prefs.repeat === "all" ? "one" : "off" })} />
       </div>
-      <div className="bar">
-        <span className="time">{fmt(drag !== null && ps.dur ? (drag / 1000) * ps.dur : ps.pos)}</span>
-        <input className="seek" type="range" min={0} max={1000} aria-label="seek" value={drag ?? (ps.dur ? (ps.pos / ps.dur) * 1000 : 0)}
-          onChange={(e) => setDrag(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
-        <span className="time">{fmt(ps.dur)}</span>
-      </div>
+      <SeekBar player={player} rate={prefs.rate || 1} />
+    </div>
+  );
+}
+
+/**
+ * Полоса перемотки без рывков. Плеер сообщает позицию 4 раза в секунду; между тиками бегунок
+ * двигается сам (requestAnimationFrame) прямо в DOM, без перерисовки React. Пока тянешь,
+ * плеер не трогаем; после отпускания бегунок остаётся на новом месте, пока плеер не догонит
+ * (раньше он отпрыгивал назад до следующего тика, а YouTube перематывает с задержкой).
+ */
+function SeekBar({ player, rate }: { player: React.RefObject<PlayerHandle>; rate: number }) {
+  const ps = usePs();
+  const bar = useRef<HTMLInputElement>(null);
+  const time = useRef<HTMLSpanElement>(null);
+  const drag = useRef<number | null>(null); // 0..1, пока тянут
+  const pending = useRef<{ at: number; until: number } | null>(null); // куда перемотали, ждём подтверждения от плеера
+  const base = useRef({ pos: 0, t: 0 });
+  const S = useRef({ ps, rate }); S.current = { ps, rate };
+  const paint = (sec: number, dur: number) => {
+    const el = bar.current; if (!el) return;
+    const f = dur ? Math.min(1, Math.max(0, sec / dur)) : 0;
+    el.value = String(Math.round(f * 1000));
+    el.style.setProperty("--p", f * 100 + "%");
+    if (time.current) time.current.textContent = fmt(sec);
+  };
+  const now = () => {
+    const { ps: p, rate: r } = S.current;
+    if (pending.current) return pending.current.at;
+    return p.playing ? Math.min(p.dur, base.current.pos + ((performance.now() - base.current.t) / 1000) * r) : base.current.pos;
+  };
+  // новый тик плеера: запоминаем опорную точку; перемотка подтверждена, когда плеер рядом с целью (или прошло 2,5 с)
+  useEffect(() => {
+    base.current = { pos: ps.pos, t: performance.now() };
+    const pd = pending.current;
+    if (pd && (Math.abs(ps.pos - pd.at) < 1.5 || performance.now() > pd.until)) pending.current = null;
+    if (drag.current === null) paint(now(), ps.dur);
+  }, [ps.pos, ps.dur, ps.playing]);
+  // плавное движение между тиками: только пока играет и окно видно
+  useEffect(() => {
+    if (!ps.playing || !ps.dur) return;
+    let raf = 0, last = 0;
+    const loop = (ts: number) => {
+      // 30 кадров в секунду достаточно для полосы, меньше нагрузка
+      if (ts - last > 33 && drag.current === null && !document.hidden) { last = ts; paint(now(), S.current.ps.dur); }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [ps.playing, ps.dur]);
+  const commit = () => {
+    const f = drag.current; if (f === null) return;
+    drag.current = null;
+    const dur = S.current.ps.dur; if (!dur) return;
+    pending.current = { at: f * dur, until: performance.now() + 2500 };
+    base.current = { pos: f * dur, t: performance.now() };
+    player.current?.seek(f);
+    paint(f * dur, dur);
+  };
+  const jump = (d: number) => {
+    const dur = S.current.ps.dur; if (!dur) return;
+    const to = Math.min(dur, Math.max(0, now() + d));
+    pending.current = { at: to, until: performance.now() + 2500 };
+    base.current = { pos: to, t: performance.now() };
+    player.current?.seek(to / dur); paint(to, dur);
+  };
+  return (
+    <div className="bar">
+      <span className="time" ref={time}>{fmt(ps.pos)}</span>
+      <input ref={bar} type="range" className="slider seek" min={0} max={1000} step={1} defaultValue={0} aria-label={t.seek} aria-valuetext={fmt(ps.pos)} disabled={!ps.dur}
+        onPointerDown={(e) => { drag.current = Number(e.currentTarget.value) / 1000; }}
+        onInput={(e) => { const f = Number(e.currentTarget.value) / 1000; drag.current = f; e.currentTarget.style.setProperty("--p", f * 100 + "%"); if (time.current) time.current.textContent = fmt(f * S.current.ps.dur); }}
+        onPointerUp={commit} onPointerCancel={commit} onLostPointerCapture={commit} onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); jump(e.key === "ArrowRight" ? 5 : -5); }
+          else if (e.key === "Home" || e.key === "End" || e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); jump(e.key === "Home" ? -1e9 : e.key === "End" ? 1e9 : e.key === "PageUp" ? 30 : -30); }
+        }} />
+      <span className="time">{fmt(ps.dur)}</span>
     </div>
   );
 }
 
 /** Текст песни из LRCLIB; синхронный подсвечивает текущую строку. */
-function Lyrics({ tr, onClose }: { tr: Track; onClose: () => void }) {
+function Lyrics({ tr, onClose, seek }: { tr: Track; onClose: () => void; seek: (sec: number) => void }) {
   const ps = usePs();
   const [txt, setTxt] = useState<[string, string] | null>(null);
   useEffect(() => { setTxt(null); api.lyrics(tr.artist, tr.name, tr.duration).then(setTxt).catch(() => setTxt(["", ""])); }, [tr.id]);
@@ -62,17 +142,19 @@ function Lyrics({ tr, onClose }: { tr: Track; onClose: () => void }) {
   const box = useRef<HTMLUListElement>(null);
   useEffect(() => { box.current?.querySelector(".on")?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [cur]);
   return (
-    <aside className="queue lyrics">
-      <div className="row head"><div className="title"><b>{t.lyrics}</b><span className="muted">{tr.name}</span></div><Btn icon="close" size="sm" label={t.lyrics} onClick={onClose} /></div>
-      {txt === null ? <p className="muted">…</p> : lines.length ? (
-        <ul ref={box}>{lines.map((l, i) => <li key={i} className={i === cur ? "on" : ""}>{l.text || "♪"}</li>)}</ul>
-      ) : txt[1] ? <pre className="plain">{txt[1]}</pre> : <p className="muted">{t.noLyrics}</p>}
+    <aside className="queue lyrics" aria-label={t.lyrics}>
+      <div className="panel-h"><h3>{t.lyrics}</h3><Btn icon="close" size="sm" label={t.close} onClick={onClose} /></div>
+      <div className="panel-b">
+        {txt === null ? <div className="empty sm"><Spinner size={22} /></div> : lines.length ? (
+          <ul ref={box}>{lines.map((l, i) => <li key={i} className={i === cur ? "on" : ""} onClick={() => seek(l.at)}>{l.text || "♪"}</li>)}</ul>
+        ) : txt[1] ? <pre className="plain">{txt[1]}</pre> : <Empty icon="lyrics" title={t.noLyrics} text={tr.name + " · " + tr.artist} />}
+      </div>
     </aside>
   );
 }
 
 /** Визуализатор спектра на месте обложки. */
-function Viz({ onClose }: { onClose: () => void }) {
+function Viz() {
   const c = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     let raf = 0;
@@ -90,7 +172,7 @@ function Viz({ onClose }: { onClose: () => void }) {
     draw();
     return () => cancelAnimationFrame(raf);
   }, []);
-  return <canvas ref={c} className="viz" width={56} height={56} onClick={onClose} title={analyser ? "" : t.vizHint} />;
+  return <canvas ref={c} className="viz" width={112} height={112} />;
 }
 
 const shuffled = (n: number, first: number) => {
@@ -118,7 +200,8 @@ export default function App() {
   const dragFrom = useRef(-1);
   const waveBusy = useRef(false);
   const waveRetry = useRef(0);
-  const [err, setErr] = useState("");
+  const setErr = useCallback((m: string) => { if (m) toast(m, "error"); }, []);
+  const [dropping, setDropping] = useState(false);
   const [prefs, setPrefsState] = useState<Prefs>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
   const [ratings, setRatings] = useState<Record<string, number>>({});
@@ -143,8 +226,8 @@ export default function App() {
 
   setLang(prefs.lang);
   const cur = pos >= 0 ? queue[order[pos]] : undefined;
-  const S = useRef({ queue, order, pos, prefs, cur });
-  S.current = { queue, order, pos, prefs, cur };
+  const S = useRef({ queue, order, pos, prefs, cur, blockedNow: blocked });
+  S.current = { queue, order, pos, prefs, cur, blockedNow: blocked };
 
   // настройки: загрузка и сохранение в SQLite
   useEffect(() => {
@@ -201,7 +284,7 @@ export default function App() {
         // 10+ забаненных треков исполнителя: предложить не рекомендовать его (только с согласия)
         if (tr.artist) api.banned().then((b) => {
           const n = b.filter((x) => x.artist.toLowerCase() === tr.artist.toLowerCase()).length;
-          if (n >= 10 && window.confirm(t.blockAsk.replace("{n}", String(n)).replace("{a}", tr.artist))) setBlockedRef.current(tr.artist, true);
+          if (n >= 10 && !S.current.blockedNow.some((x) => x.toLowerCase() === tr.artist.toLowerCase())) ask.confirm({ title: t.blockArtist, body: t.blockAsk.replace("{n}", String(n)).replace("{a}", tr.artist), ok: t.blockArtist, cancel: t.cancel }).then((y) => { if (y) setBlockedRef.current(tr.artist, true); });
         }).catch(() => {});
       }
     }).catch((x) => setErr(String(x)));
@@ -215,6 +298,19 @@ export default function App() {
     }).catch((x) => setErr(String(x)));
   }, [setPrefs]);
 
+  // трек Deezer: видео YouTube ищется только сейчас, при запуске (один поиск, повторно — из кэша в базе)
+  useEffect(() => {
+    const tr = cur;
+    if (!tr || tr.source !== "deezer" || tr.kind === "preview") return;
+    let live = true;
+    api.resolveTrack(tr).then((r) => {
+      if (!live) return;
+      if (r.kind === "preview") setErr(t.previewOnly);
+      rekeyHold(tr.id, r.id);
+      setQueue((q) => q.map((x) => (x.id === tr.id ? r : x)));
+    }).catch((x) => { if (live) setErr(String(x)); });
+    return () => { live = false; };
+  }, [cur?.id]);
   const play = useCallback((list: Track[], i: number, keepWave = false) => {
     if (!keepWave) setWave(false); // любой ручной запуск списка выключает бесконечное «Эхо»
     setQueue(list);
@@ -248,9 +344,11 @@ export default function App() {
   useEffect(() => {
     let off: (() => void) | undefined;
     import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => getCurrentWebview().onDragDropEvent((e) => {
+      if (e.payload.type === "enter" || e.payload.type === "over") { setDropping(true); return; }
+      setDropping(false);
       if (e.payload.type !== "drop") return;
       const files = e.payload.paths.filter((x) => /\.(mp3|flac|ogg|opus|m4a|wav|aac)$/i.test(x));
-      if (!files.length) return;
+      if (!files.length) { toast(t.dropBad, "info"); return; }
       const list: Track[] = files.map((f) => { const n = f.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, ""); const [a, b] = n.includes(" - ") ? n.split(" - ", 2) : ["", n];
         return { id: "local:file:" + f, source: "local", kind: "music", url: "", name: b.trim(), artist: a.trim(), album: "", image: "", audio: f, downloadUrl: "", downloadAllowed: false, duration: 0, tags: [], licenseUrl: "" }; });
       play(list, 0);
@@ -321,6 +419,10 @@ export default function App() {
     const h = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
       if (["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) && !(el as HTMLInputElement).type?.match(/range|checkbox/)) return;
+      if (el.isContentEditable || document.querySelector(".scrim, .menu")) return; // открыт диалог или меню: клавиши принадлежат ему
+      if (e.altKey || e.metaKey) return;
+      if ((e.code === "Space" || e.key === "Enter") && ["BUTTON", "A"].includes(el.tagName)) return; // пробел на кнопке нажимает кнопку, а не паузу
+      if (el.tagName === "INPUT" && e.key.startsWith("Arrow") && !e.ctrlKey) return; // стрелки двигают сам ползунок
       const p = S.current.prefs;
       if (e.code === "Space") { e.preventDefault(); player.current?.toggle(); }
       else if (e.ctrlKey && e.key === "ArrowRight") skipRef.current(1);
@@ -331,8 +433,14 @@ export default function App() {
       else if (!e.ctrlKey && (e.key === "ArrowRight" || e.key === "ArrowLeft")) { const ps = psGet(); if (ps.dur) player.current?.seek(Math.min(1, Math.max(0, (ps.pos + (e.key === "ArrowRight" ? 5 : -5)) / ps.dur))); }
       else if (e.code === "KeyM" && !e.ctrlKey) setPrefs({ volume: p.volume === 0 ? 0.8 : 0 });
       else if (e.code === "KeyL" && !e.ctrlKey) { const c = S.current.cur; if (c) rateRef.current(c, 1); }
-      else if (e.key === "s" && !e.ctrlKey) setPrefs({ shuffle: !p.shuffle });
-      else if (e.key === "r" && !e.ctrlKey) setPrefs({ repeat: p.repeat === "off" ? "all" : p.repeat === "all" ? "one" : "off" });
+      else if (e.code === "KeyS" && !e.ctrlKey) setPrefs({ shuffle: !p.shuffle });
+      else if (e.code === "KeyR" && !e.ctrlKey) setPrefs({ repeat: p.repeat === "off" ? "all" : p.repeat === "all" ? "one" : "off" });
+      else if (e.code === "KeyQ" && !e.ctrlKey) { setShowQ((x) => !x); setShowL(false); }
+      else if (e.code === "KeyT" && !e.ctrlKey) { setShowL((x) => !x); setShowQ(false); }
+      else if (e.key === "/" || (e.ctrlKey && e.code === "KeyK")) { e.preventDefault(); setTab("search"); setTimeout(() => document.getElementById("search-input")?.focus(), 50); }
+      else if (e.ctrlKey && e.key === ",") { e.preventDefault(); setTab("settings"); }
+      else if (e.ctrlKey && /^Digit[1-9]$/.test(e.code)) { e.preventDefault(); const k = TABS[Number(e.code.slice(5)) - 1]; if (k) setTab(k); }
+      else if (e.key === "Escape") { setShowQ(false); setShowL(false); }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -379,18 +487,18 @@ export default function App() {
   }, [cur?.id]);
 
   const View = { home: Home, search: Search, browse: Browse, echo: Echo, liked: Liked, banned: Banned, history: History, playlists: Playlists, downloads: Downloads, import: Import, settings: Settings, artist: Artist }[tab];
-  const go = useCallback((k: Tab) => { setTab(k); setErr(""); }, []);
+  const go = useCallback((k: Tab) => { setTab(k); }, []);
   const startWaveRef = useRef(startWave);
   startWaveRef.current = startWave;
   const radio = useCallback((tr: Track) => { startWaveRef.current(S.current.prefs.tastes, tr.artist ? [{ name: tr.artist, tags: tr.tags.slice(0, 3) }] : undefined); }, []);
-  const openArtist = useCallback((name: string) => { setArtist(name); setTab("artist"); setErr(""); }, []);
+  const openArtist = useCallback((name: string) => { setArtist(name); setTab("artist"); }, []);
   const stopWave = useCallback(() => setWave(false), []);
   const ctx = useMemo(() => ({ play, enqueue, cur, ratings, rate, onError: setErr, prefs, setPrefs, resetTaste, wave, startWave: (a?: string[], b?: ArtistSeed[]) => startWaveRef.current(a, b), stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists, blocked, setBlocked }),
     [play, enqueue, cur, ratings, rate, prefs, setPrefs, resetTaste, wave, stopWave, upcoming, go, radio, openArtist, artist, playlists, refreshPlaylists, blocked, setBlocked]);
   const saveQueue = () => {
     const list = [cur, ...upcoming].filter(Boolean) as Track[];
     if (!list.length) return;
-    api.savePlaylist(t.queue + " " + new Date().toLocaleString(), list).then(() => { refreshPlaylists(); setErr(t.queueSaved); }).catch((x) => setErr(String(x)));
+    api.savePlaylist(t.queue + " " + new Date().toLocaleString(), list).then(() => { refreshPlaylists(); toast(t.queueSaved, "ok"); }).catch((x) => setErr(String(x)));
   };
   const moveQueue = (from: number, to: number) => {
     if (from === to || from < 0) return;
@@ -399,58 +507,97 @@ export default function App() {
     setOrder([...head, ...rest]);
   };
 
-  if (!loaded) return null;
-  if (!prefs.onboarded) return <><Titlebar /><Suspense fallback={null}><Onboarding prefs={prefs} done={(x) => { setRedo(false); setPrefs(x); }} startStep={redo ? 1 : 0} /></Suspense></>;
+  const vizOn = () => { if (!analyser) { toast(t.vizHint, "info"); return; } setViz(!viz); };
+  const speedItems = [0.75, 1, 1.25, 1.5, 2].map((r) => ({ label: r + "×", checked: (prefs.rate || 1) === r, onClick: () => setPrefs({ rate: r }) }));
+  const dragOver = useRef<HTMLElement | null>(null);
+  const markOver = (el: HTMLElement | null) => { dragOver.current?.classList.remove("drag-over"); dragOver.current = el; el?.classList.add("drag-over"); };
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); }, [tab, artist]);
+
+  if (!loaded) return <><Titlebar /><div className="onb"><Spinner size={28} /></div></>;
+  if (!prefs.onboarded) return <><Titlebar /><Suspense fallback={<div className="onb"><Spinner size={28} /></div>}><Onboarding prefs={prefs} done={(x) => { setRedo(false); setPrefs(x); }} startStep={redo ? 1 : 0} /></Suspense><Toaster /><AskHost /></>;
 
   return (
     <AppCtx.Provider value={ctx}>
-      <Titlebar />
+      <Titlebar now={cur ? cur.name + " · " + cur.artist : ""} />
       <div className={"app" + (mini ? " mini" : "")}>
-        <nav>
-          <h1>Silo</h1>
-          {TABS.map((k) => <Btn key={k} variant="nav" active={tab === k} onClick={() => { setTab(k); setErr(""); }}>{t[k]}{k === "echo" && wave ? " ●" : ""}</Btn>)}
-        </nav>
-        <main>
-          {!online && <div className="notice">{t.offline}</div>}
-          {err && <div className="err" onClick={() => setErr("")}>{err}</div>}
-          <Suspense fallback={null}><View /></Suspense>
-        </main>
-        {showQ && (
-          <aside className="queue">
-            <div className="row head"><div className="title"><b>{t.queue}</b><span className="muted">{upcoming.length}</span></div><Btn icon="close" size="sm" label={t.queue} onClick={() => setShowQ(false)} /></div>
-            <div className="row" style={{ gap: 6, margin: "6px 0" }}>
-              <Btn size="sm" onClick={() => setOrder(order.slice(0, pos + 1))}>{t.clearQueue}</Btn>
-              <Btn size="sm" onClick={saveQueue}>{t.saveQueue}</Btn>
-            </div>
-            <ul>
-              {upcoming.map((tr, i) => (
-                <li key={tr.id + i} draggable onDragStart={() => (dragFrom.current = i)} onDragOver={(e) => e.preventDefault()} onDrop={() => { moveQueue(dragFrom.current, i); dragFrom.current = -1; }} style={{ cursor: "grab" }}>
-                  <span onClick={() => setPos(pos + 1 + i)}>{tr.name} <small>{tr.artist}</small></span>
-                  <Btn icon="close" size="sm" label={t.removeFromQueue} onClick={() => { const at = pos + 1 + i; setOrder(order.filter((_, k) => k !== at)); }} />
-                </li>
+        <nav aria-label={t.navLabel}>
+          {NAV.map(([group, items]) => (
+            <Fragment key={group}>
+              <div className="nav-g">{t[group]}</div>
+              {items.map(([k, ic]) => (
+                <Btn key={k} variant="nav" icon={ic} active={tab === k} label={t[k]} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+                  {t[k]}{k === "echo" && wave ? <span className="nav-live" title={t.echoPlaying} /> : null}
+                </Btn>
               ))}
-            </ul>
-          </aside>
-        )}
-        {showL && cur && !mini && <Lyrics tr={cur} onClose={() => setShowL(false)} />}
-        <Player ref={player} track={cur} nextTrack={nextTrack} prefs={prefs} onEnded={ended} onCrossfaded={crossfaded} onState={psSet} onWarn={setErr} />
-        <footer>
+            </Fragment>
+          ))}
+        </nav>
+        <main ref={mainRef}>
+          {!online && <div className="offline-bar" role="status"><Icon name="wifiOff" size={16} />{t.offline}</div>}
+          <div className="view" key={tab + ":" + (tab === "artist" ? artist : "")}>
+            <Suspense fallback={<div className="empty"><Spinner size={26} /></div>}><View /></Suspense>
+          </div>
+        </main>
+        <div className="panels">
+          {showQ && !mini && (
+            <aside className="queue" aria-label={t.queue}>
+              <div className="panel-h">
+                <h3>{t.queue}{upcoming.length > 0 && <small>{upcoming.length}</small>}</h3>
+                <Btn icon="save" size="sm" label={t.saveQueue} disabled={!cur} onClick={saveQueue} />
+                <Btn icon="trash" size="sm" label={t.clearQueue} disabled={!upcoming.length} onClick={() => { const old = order; setOrder(order.slice(0, pos + 1)); toast(t.queueCleared, "info", { label: t.undo, run: () => setOrder(old) }); }} />
+                <Btn icon="close" size="sm" label={t.close} onClick={() => setShowQ(false)} />
+              </div>
+              <div className="panel-b">
+                {cur && <><div className="panel-sub">{t.nowPlaying}</div>
+                  <div className="q-i cur"><span className="cover"><Cover src={cur.image} /></span><div className="meta"><b>{cur.name}</b><span>{cur.artist}</span></div><Bars /></div></>}
+                {upcoming.length > 0 ? <>
+                  <div className="panel-sub">{wave ? t.upNext : t.nextUp}</div>
+                  <ul>
+                    {upcoming.map((tr, i) => (
+                      <li key={tr.id + i} className="q-i" draggable tabIndex={0}
+                        onDragStart={(e) => { dragFrom.current = i; e.dataTransfer.effectAllowed = "move"; e.currentTarget.classList.add("dragging"); }}
+                        onDragEnd={(e) => { e.currentTarget.classList.remove("dragging"); markOver(null); }}
+                        onDragOver={(e) => { e.preventDefault(); markOver(e.currentTarget); }}
+                        onDrop={() => { moveQueue(dragFrom.current, i); dragFrom.current = -1; markOver(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") setPos(pos + 1 + i); else if (e.key === "Delete") { const at = pos + 1 + i; setOrder(order.filter((_, k) => k !== at)); } else if (e.altKey && e.key === "ArrowUp" && i > 0) moveQueue(i, i - 1); else if (e.altKey && e.key === "ArrowDown" && i < upcoming.length - 1) moveQueue(i, i + 1); }}
+                        onClick={() => setPos(pos + 1 + i)}>
+                        <span className="q-grip"><Icon name="grip" size={14} /></span>
+                        <span className="cover"><Cover src={tr.image} /></span>
+                        <div className="meta"><b>{tr.name}</b><span>{tr.artist}</span></div>
+                        <Btn icon="close" size="sm" label={t.removeFromQueue} onClick={(e) => { e.stopPropagation(); const at = pos + 1 + i; setOrder(order.filter((_, k) => k !== at)); }} />
+                      </li>
+                    ))}
+                  </ul>
+                </> : <Empty icon="queue" title={t.queueEmptyT} text={t.queueEmpty} />}
+              </div>
+            </aside>
+          )}
+          {showL && cur && !mini && <Lyrics tr={cur} onClose={() => setShowL(false)} seek={(sec) => { const d = psGet().dur; if (d) player.current?.seek(sec / d); }} />}
+          <Player ref={player} track={cur} nextTrack={nextTrack} prefs={prefs} onEnded={ended} onCrossfaded={crossfaded} onState={psSet} onWarn={setErr} />
+        </div>
+        <footer aria-label={t.playerLabel}>
           <div className="now">
-            {cur ? <>{viz ? <Viz onClose={() => setViz(false)} /> : cur.image ? <img src={cur.image} alt="" onClick={() => { setViz(true); if (!analyser) setErr(t.vizHint); }} /> : <span className="ph" onClick={() => { setViz(true); if (!analyser) setErr(t.vizHint); }} />}<div className="np"><b>{cur.name}</b><span>{cur.artist}</span></div><RateButtons tr={cur} /></> : <div className="np" />}
+            {cur ? <>
+              <button className="now-cover" onClick={vizOn} aria-label={t.vizToggle} title={t.vizToggle}>{viz && analyser ? <Viz /> : <Cover src={cur.image} />}</button>
+              <div className="np"><b title={cur.name}>{cur.name}</b>{cur.artist ? <a className="artist-link" role="link" tabIndex={0} onClick={() => !mini && openArtist(cur.artist)} onKeyDown={(e) => { if (e.key === "Enter") openArtist(cur.artist); }}>{cur.artist}</a> : <span>{srcName(cur.source)}</span>}</div>
+              <div className="now-acts"><RateButtons tr={cur} /></div>
+            </> : <div className="now-idle"><span className="now-cover" style={{ cursor: "default" }}><Cover /></span>{t.nothingPlaying}</div>}
           </div>
           <Transport player={player} skip={skip} prefs={prefs} setPrefs={setPrefs} />
           <div className="side">
-            <Btn icon={prefs.volume === 0 ? "mute" : "volume"} size="sm" label={t.volume} onClick={() => setPrefs({ volume: prefs.volume === 0 ? 0.8 : 0 })} />
+            <Btn icon={prefs.volume === 0 ? "mute" : prefs.volume < 0.4 ? "volumeLow" : "volume"} size="sm" label={t.volume + " (M)"} onClick={() => setPrefs({ volume: prefs.volume === 0 ? 0.8 : 0 })} />
             <Volume value={prefs.volume} live={(v) => player.current?.setVolume(v)} onChange={(v) => setPrefs({ volume: v })} />
-            <select className="rate" aria-label={t.speed} title={t.speed} value={prefs.rate || 1} onChange={(e) => setPrefs({ rate: Number(e.target.value) })}>
-              {[0.75, 1, 1.25, 1.5].map((r) => <option key={r} value={r}>{r}×</option>)}
-            </select>
-            <Btn size="sm" active={showL} onClick={() => { setShowL(!showL); setShowQ(false); }}>{t.lyrics}</Btn>
-            <Btn icon="queue" size="sm" label={t.queue} active={showQ} onClick={() => { setShowQ(!showQ); setShowL(false); }} />
-            <Btn size="sm" active={mini} onClick={toggleMini}>{mini ? "⤢" : "⤡"}</Btn>
+            <span className="hide-sm"><Menu icon="speed" size="sm" up label={t.speed + ": " + (prefs.rate || 1) + "×"} active={(prefs.rate || 1) !== 1} items={speedItems} /></span>
+            <Btn icon="lyrics" size="sm" label={t.lyrics + " (T)"} active={showL} disabled={!cur} onClick={() => { setShowL(!showL); setShowQ(false); }} />
+            <Btn icon="queue" size="sm" label={t.queue + " (Q)"} active={showQ} onClick={() => { setShowQ(!showQ); setShowL(false); }} />
+            <Btn icon={mini ? "expand" : "mini"} size="sm" className="keep" label={mini ? t.miniOff : t.mini} active={mini} onClick={toggleMini} />
           </div>
         </footer>
       </div>
+      {dropping && <div className="drop-zone"><div><Icon name="music" size={40} />{t.dropHere}</div></div>}
+      <Toaster />
+      <AskHost />
     </AppCtx.Provider>
   );
 }
