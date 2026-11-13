@@ -47,6 +47,10 @@ Section "Silo Player Native"
   nsExec::Exec 'taskkill /IM ${EXE} /F'
   SetOutPath "$INSTDIR"
   File "${SRC}\${EXE}"
+  ; встроенный yt-dlp (режим «Библиотека yt-dlp»): программа находит его рядом с собой
+  !if /FileExists "bin\yt-dlp.exe"
+    File "bin\yt-dlp.exe"
+  !endif
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateShortCut "$SMPROGRAMS\Silo Player (native).lnk" "$INSTDIR\${EXE}"
   CreateShortCut "$DESKTOP\Silo Player (native).lnk" "$INSTDIR\${EXE}"
@@ -64,6 +68,7 @@ Section "Uninstall"
   nsExec::Exec 'taskkill /IM ${EXE} /F'
   Delete "$INSTDIR\${EXE}"
   Delete "$INSTDIR\uninstall.exe"
+  Delete "$INSTDIR\yt-dlp.exe"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\Silo Player (native).lnk"
   Delete "$DESKTOP\Silo Player (native).lnk"
