@@ -26,10 +26,13 @@ const TABS: Tab[] = NAV.flatMap(([, items]) => items.map(([k]) => k));
 function Volume({ value, onChange, live }: { value: number; onChange: (v: number) => void; live: (v: number) => void }) {
   const [local, setLocal] = useState(value);
   const tm = useRef(0);
-  useEffect(() => setLocal(value), [value]);
+  const busy = useRef(false); // пока тянут, внешнее значение не перебивает бегунок
+  useEffect(() => { if (!busy.current) setLocal(value); }, [value]);
+  useEffect(() => () => clearTimeout(tm.current), []);
   return (
     <Slider className="vol" min={0} max={100} aria-label={t.volume} value={Math.round(local * 100)}
-      onChange={(x) => { const v = x / 100; setLocal(v); live(v); clearTimeout(tm.current); tm.current = window.setTimeout(() => onChange(v), 200); }}
+      onPointerDown={() => (busy.current = true)} onPointerUp={() => (busy.current = false)} onBlur={() => (busy.current = false)}
+      onChange={(x) => { const v = x / 100; setLocal(v); live(v); clearTimeout(tm.current); tm.current = window.setTimeout(() => onChange(v), 250); }}
       onWheel={(e) => { const v = Math.min(1, Math.max(0, local + (e.deltaY < 0 ? 0.05 : -0.05))); setLocal(v); live(v); onChange(v); }} />
   );
 }
@@ -37,8 +40,6 @@ function Volume({ value, onChange, live }: { value: number; onChange: (v: number
 /** Нижняя панель: только она перерисовывается каждый тик воспроизведения. */
 function Transport({ player, skip, prefs, setPrefs }: { player: React.RefObject<PlayerHandle>; skip: (d: 1 | -1) => void; prefs: Prefs; setPrefs: (p: Partial<Prefs>) => void }) {
   const ps = usePs();
-  const [drag, setDrag] = useState<number | null>(null); // значение ползунка, пока его тянут: плеер не дёргаем на каждый пиксель
-  const commit = () => { if (drag !== null) { player.current?.seek(drag / 1000); setDrag(null); } };
   return (
     <div className="transport">
       <div className="ctrls">
@@ -49,12 +50,84 @@ function Transport({ player, skip, prefs, setPrefs }: { player: React.RefObject<
         <Btn icon={prefs.repeat === "one" ? "repeatOne" : "repeat"} size="sm" label={t.repeat} active={prefs.repeat !== "off"}
           onClick={() => setPrefs({ repeat: prefs.repeat === "off" ? "all" : prefs.repeat === "all" ? "one" : "off" })} />
       </div>
-      <div className="bar">
-        <span className="time">{fmt(drag !== null && ps.dur ? (drag / 1000) * ps.dur : ps.pos)}</span>
-        <Slider className="seek" min={0} max={1000} aria-label={t.seek} aria-valuetext={fmt(ps.pos)} disabled={!ps.dur} value={Math.round(drag ?? (ps.dur ? (ps.pos / ps.dur) * 1000 : 0))}
-          onChange={(v) => setDrag(v)} onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
-        <span className="time">{fmt(ps.dur)}</span>
-      </div>
+      <SeekBar player={player} rate={prefs.rate || 1} />
+    </div>
+  );
+}
+
+/**
+ * Полоса перемотки без рывков. Плеер сообщает позицию 4 раза в секунду; между тиками бегунок
+ * двигается сам (requestAnimationFrame) прямо в DOM, без перерисовки React. Пока тянешь,
+ * плеер не трогаем; после отпускания бегунок остаётся на новом месте, пока плеер не догонит
+ * (раньше он отпрыгивал назад до следующего тика, а YouTube перематывает с задержкой).
+ */
+function SeekBar({ player, rate }: { player: React.RefObject<PlayerHandle>; rate: number }) {
+  const ps = usePs();
+  const bar = useRef<HTMLInputElement>(null);
+  const time = useRef<HTMLSpanElement>(null);
+  const drag = useRef<number | null>(null); // 0..1, пока тянут
+  const pending = useRef<{ at: number; until: number } | null>(null); // куда перемотали, ждём подтверждения от плеера
+  const base = useRef({ pos: 0, t: 0 });
+  const S = useRef({ ps, rate }); S.current = { ps, rate };
+  const paint = (sec: number, dur: number) => {
+    const el = bar.current; if (!el) return;
+    const f = dur ? Math.min(1, Math.max(0, sec / dur)) : 0;
+    el.value = String(Math.round(f * 1000));
+    el.style.setProperty("--p", f * 100 + "%");
+    if (time.current) time.current.textContent = fmt(sec);
+  };
+  const now = () => {
+    const { ps: p, rate: r } = S.current;
+    if (pending.current) return pending.current.at;
+    return p.playing ? Math.min(p.dur, base.current.pos + ((performance.now() - base.current.t) / 1000) * r) : base.current.pos;
+  };
+  // новый тик плеера: запоминаем опорную точку; перемотка подтверждена, когда плеер рядом с целью (или прошло 2,5 с)
+  useEffect(() => {
+    base.current = { pos: ps.pos, t: performance.now() };
+    const pd = pending.current;
+    if (pd && (Math.abs(ps.pos - pd.at) < 1.5 || performance.now() > pd.until)) pending.current = null;
+    if (drag.current === null) paint(now(), ps.dur);
+  }, [ps.pos, ps.dur, ps.playing]);
+  // плавное движение между тиками: только пока играет и окно видно
+  useEffect(() => {
+    if (!ps.playing || !ps.dur) return;
+    let raf = 0, last = 0;
+    const loop = (ts: number) => {
+      // 30 кадров в секунду достаточно для полосы, меньше нагрузка
+      if (ts - last > 33 && drag.current === null && !document.hidden) { last = ts; paint(now(), S.current.ps.dur); }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [ps.playing, ps.dur]);
+  const commit = () => {
+    const f = drag.current; if (f === null) return;
+    drag.current = null;
+    const dur = S.current.ps.dur; if (!dur) return;
+    pending.current = { at: f * dur, until: performance.now() + 2500 };
+    base.current = { pos: f * dur, t: performance.now() };
+    player.current?.seek(f);
+    paint(f * dur, dur);
+  };
+  const jump = (d: number) => {
+    const dur = S.current.ps.dur; if (!dur) return;
+    const to = Math.min(dur, Math.max(0, now() + d));
+    pending.current = { at: to, until: performance.now() + 2500 };
+    base.current = { pos: to, t: performance.now() };
+    player.current?.seek(to / dur); paint(to, dur);
+  };
+  return (
+    <div className="bar">
+      <span className="time" ref={time}>{fmt(ps.pos)}</span>
+      <input ref={bar} type="range" className="slider seek" min={0} max={1000} step={1} defaultValue={0} aria-label={t.seek} aria-valuetext={fmt(ps.pos)} disabled={!ps.dur}
+        onPointerDown={(e) => { drag.current = Number(e.currentTarget.value) / 1000; }}
+        onInput={(e) => { const f = Number(e.currentTarget.value) / 1000; drag.current = f; e.currentTarget.style.setProperty("--p", f * 100 + "%"); if (time.current) time.current.textContent = fmt(f * S.current.ps.dur); }}
+        onPointerUp={commit} onPointerCancel={commit} onLostPointerCapture={commit} onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); jump(e.key === "ArrowRight" ? 5 : -5); }
+          else if (e.key === "Home" || e.key === "End" || e.key === "PageUp" || e.key === "PageDown") { e.preventDefault(); jump(e.key === "Home" ? -1e9 : e.key === "End" ? 1e9 : e.key === "PageUp" ? 30 : -30); }
+        }} />
+      <span className="time">{fmt(ps.dur)}</span>
     </div>
   );
 }

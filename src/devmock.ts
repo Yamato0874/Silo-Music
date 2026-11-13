@@ -8,7 +8,11 @@ const cover = (i: number) => {
 const NAMES = ["Северный ветер", "Midnight Drive", "Тихий океан", "Glass Houses", "Последний трамвай", "Echoes of You", "Город засыпает", "Paper Planes at Dawn", "Соль и мёд", "Low Tide", "Очень длинное название трека, которое не помещается в одну строку и должно обрезаться", "Neon Rain", "Белые ночи", "Slow Motion", "Кометы", "Afterglow"];
 const ARTISTS = ["Мельница света", "The Wandering", "Аврора", "Kite Club", "Hollow Coves", "Синий кит", "Ólafur Jónsson", "Polar Bears on Holiday"];
 const SRC = ["jamendo", "youtube", "soundcloud", "local"];
-const tr = (i: number) => ({ id: "t" + i, source: SRC[i % 4], kind: "music", url: "https://example.com/" + i, name: NAMES[i % NAMES.length], artist: ARTISTS[i % ARTISTS.length], album: "Альбом " + (i % 5), image: i % 7 === 6 ? "" : cover(i), audio: "", downloadUrl: "", downloadAllowed: i % 4 === 0, duration: 150 + ((i * 37) % 200), tags: ["indie", "rock", "chillout"].slice(0, 1 + (i % 3)), licenseUrl: i % 4 === 0 ? "https://creativecommons.org/licenses/by/4.0/" : "" });
+/* тихий WAV на 40 с: на стенде можно проверить перемотку, паузу и полосу прогресса */
+const silentWav = (() => { const n = 8000 * 40, b = new ArrayBuffer(44 + n), v = new DataView(b), w = (o: number, s: string) => [...s].forEach((c, k) => v.setUint8(o + k, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); w(36, "data"); v.setUint32(40, n, true);
+  new Uint8Array(b, 44).fill(128); return URL.createObjectURL(new Blob([b], { type: "audio/wav" })); })();
+const tr = (i: number) => ({ id: "t" + i, source: SRC[i % 4], kind: "music", url: "https://example.com/" + i, name: NAMES[i % NAMES.length], artist: ARTISTS[i % ARTISTS.length], album: "Альбом " + (i % 5), image: i % 7 === 6 ? "" : cover(i), audio: i % 4 === 0 ? silentWav : "", downloadUrl: "", downloadAllowed: i % 4 === 0, duration: 150 + ((i * 37) % 200), tags: ["indie", "rock", "chillout"].slice(0, 1 + (i % 3)), licenseUrl: i % 4 === 0 ? "https://creativecommons.org/licenses/by/4.0/" : "" });
 const list = (n: number, from = 0) => Array.from({ length: n }, (_, i) => tr(from + i));
 const store: Record<string, string> = {
   prefs: JSON.stringify({ onboarded: !location.search.includes("onb"), tastes: ["indie_rock", "ambient", "synthwave"], theme: new URLSearchParams(location.search).get("theme") || "amber", volume: 0.7 }),

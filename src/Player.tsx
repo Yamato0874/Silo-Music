@@ -88,7 +88,7 @@ const Player = forwardRef<PlayerHandle, Props>((props, ref) => {
     },
     seek(f: number) {
       const t = P.current.track;
-      if (isAudio(t)) { if (A().duration) A().currentTime = f * A().duration; }
+      if (isAudio(t)) { const el = A(); if (el.duration) el.currentTime = f * el.duration; }
       else if (t?.source === "youtube") { const d = yt.current?.getDuration?.(); if (d) yt.current.seekTo(f * d, true); }
       else if (t?.source === "soundcloud") sc.current?.seekTo(f * scS.current.dur * 1000);
     },
