@@ -34,6 +34,10 @@ impl Db {
         let to = dir.join(format!("silo-{tag}.db"));
         if to.exists() { return; }
         let _ = std::fs::copy(path, &to);
+        // ключи сервисов в резервные копии не попадают
+        if let Ok(c) = Connection::open(&to) {
+            let _ = c.execute_batch("DELETE FROM settings WHERE key IN ('youtube_api_key','soundcloud_client_id','soundcloud_client_secret','jamendo_client_id','google_cse_key','google_cse_cx','listenbrainz_token'); VACUUM;");
+        }
         if let Ok(rd) = std::fs::read_dir(&dir) {
             let mut v: Vec<_> = rd.filter_map(|e| e.ok()).filter_map(|e| { let m = e.metadata().ok()?.modified().ok()?; Some((m, e.path())) }).collect();
             v.sort_by(|a, b| b.0.cmp(&a.0));
@@ -59,6 +63,7 @@ impl Db {
              CREATE TABLE IF NOT EXISTS seen(track_id TEXT NOT NULL, key TEXT NOT NULL, pop REAL NOT NULL, PRIMARY KEY(track_id, key));
              CREATE INDEX IF NOT EXISTS seen_key_pop ON seen(key, pop);
              CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, ts INTEGER NOT NULL, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS yt_match(track_id TEXT PRIMARY KEY, video_id TEXT NOT NULL, via TEXT NOT NULL, ts INTEGER NOT NULL);
              CREATE TABLE IF NOT EXISTS ratings(
                track_id TEXT PRIMARY KEY, value INTEGER NOT NULL, tags TEXT NOT NULL,
                ts INTEGER NOT NULL DEFAULT (strftime('%s','now')));",
@@ -94,7 +99,7 @@ impl Db {
             params![key, now_secs() as i64, value],
         )?;
         // не даём кэшу расти бесконечно
-        self.conn.execute("DELETE FROM cache WHERE ts < ?", [now_secs() as i64 - 14 * 86400])?;
+        self.conn.execute("DELETE FROM cache WHERE ts < ?", [now_secs() as i64 - 31 * 86400])?;
         Ok(())
     }
 
@@ -347,6 +352,12 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn yt_match_roundtrip() {
+        let d = Db::memory().unwrap();
+        d.yt_match_put("deezer:1", "vid", "api").unwrap();
+        assert_eq!(d.yt_match_get("deezer:1").unwrap().as_deref(), Some("vid"));
+    }
     pub fn track(id: &str, tags: &[&str]) -> Track {
         Track {
             id: id.into(), source: "jamendo".into(), kind: "music".into(), url: "".into(), name: "n".into(), artist: "a".into(), album: "".into(), image: "".into(),
