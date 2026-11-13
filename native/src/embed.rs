@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::http::{Request, Response};
-use wry::{Rect, WebContext, WebView, WebViewBuilder};
+use wry::{Rect, WebContext, WebView, WebViewBuilder, WebViewBuilderExtWindows};
 
 #[derive(Default, Clone, Debug)]
 pub struct EmbedState {
@@ -85,6 +85,8 @@ impl Embed {
             })
             .with_url("http://silo.localhost/player.html")
             .with_autoplay(true)
+            // как в React-версии: без GPU-процесса и фоновых служб Edge — в разы меньше памяти
+            .with_additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,OptimizationHints,MediaRouter,Translate --disable-gpu --disable-background-networking --disable-component-update --autoplay-policy=no-user-gesture-required")
             .with_background_color((0, 0, 0, 255))
             .with_bounds(rect_of(rect))
             .with_ipc_handler(move |req: Request<String>| {
