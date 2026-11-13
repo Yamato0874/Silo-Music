@@ -45,6 +45,9 @@ VIAddVersionKey /LANG=${LANG_RUSSIAN} "LegalCopyright" "© 2026 Silo"
 Section "Silo Player Native"
   ; закрыть запущенную нативную версию (обычную версию не трогаем)
   nsExec::Exec 'taskkill /IM ${EXE} /F'
+  ; подождать, пока закрытая программа отпустит файл (иначе exe не заменится)
+  Sleep 2000
+  SetOverwrite try
   SetOutPath "$INSTDIR"
   File "${SRC}\${EXE}"
   ; встроенный yt-dlp (режим «Библиотека yt-dlp»): программа находит его рядом с собой
