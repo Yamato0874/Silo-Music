@@ -6,8 +6,41 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(feature = "embed-ytdlp")]
+static EMBEDDED: &[u8] = include_bytes!(env!("SILO_YTDLP_PATH"));
+
+/// Папка, куда распаковывается встроенный yt-dlp (рядом с кэшем приложения).
+fn bin_dir() -> PathBuf {
+    std::env::var_os("SILO_LOCAL_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native")).join("bin")
+}
+
+/// Распаковать встроенный yt-dlp, если его нет или размер другой (один раз за запуск). Без функции embed-ytdlp ничего не делает.
+fn unpack_embedded() -> Option<PathBuf> {
+    #[cfg(feature = "embed-ytdlp")]
+    {
+        static ONCE: OnceLock<Option<PathBuf>> = OnceLock::new();
+        return ONCE.get_or_init(|| {
+            let dir = bin_dir();
+            let p = dir.join("yt-dlp.exe");
+            let ok = std::fs::metadata(&p).map(|m| m.len() == EMBEDDED.len() as u64).unwrap_or(false);
+            if !ok {
+                std::fs::create_dir_all(&dir).ok()?;
+                let tmp = dir.join("yt-dlp.exe.part");
+                std::fs::write(&tmp, EMBEDDED).ok()?;
+                std::fs::rename(&tmp, &p).ok()?;
+            }
+            Some(p)
+        }).clone();
+    }
+    #[cfg(not(feature = "embed-ytdlp"))]
+    None
+}
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static LAST_ERR: Mutex<String> = Mutex::new(String::new());
+/// Браузер, из которого yt-dlp берёт cookies ("" = не брать). Нужен, когда YouTube просит подтвердить, что вы не бот.
+static COOKIES: Mutex<String> = Mutex::new(String::new());
+pub fn set_cookies_browser(b: &str) { *COOKIES.lock().unwrap() = b.trim().to_string(); }
 
 pub fn last_error() -> String {
     let e = LAST_ERR.lock().unwrap().clone();
@@ -24,6 +57,10 @@ pub fn find(custom: &str) -> Option<PathBuf> {
     if let Some(d) = std::env::current_exe().ok().and_then(|x| x.parent().map(|p| p.to_path_buf())) {
         for n in ["yt-dlp.exe", "yt-dlp/yt-dlp.exe"] { let p = d.join(n); if p.is_file() { return Some(p); } }
     }
+    // скачанный или распакованный из exe yt-dlp в папке данных приложения
+    if let Some(p) = unpack_embedded() { return Some(p); }
+    let own = bin_dir().join("yt-dlp.exe");
+    if own.is_file() { return Some(own); }
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).map(|d| d.join("yt-dlp.exe")).find(|p| p.is_file())
 }
@@ -55,6 +92,7 @@ fn node_path() -> Option<String> {
 fn base(exe: &str) -> Command {
     let mut c = cmd(exe);
     c.args(["--no-warnings", "--socket-timeout", "20", "--retries", "3"]);
+    { let b = COOKIES.lock().unwrap().clone(); if !b.is_empty() { c.args(["--cookies-from-browser", &b]); } }
     if knows(exe, "--js-runtimes") {
         if let Some(n) = node_path() { c.args(["--js-runtimes", &format!("node:{n}")]); }
     }

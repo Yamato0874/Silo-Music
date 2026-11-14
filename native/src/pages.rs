@@ -1414,6 +1414,12 @@ impl SiloApp {
                 if self.ytdlp_exe().is_some() && btn(ui, &pal, V::Solid, Some("refresh"), crate::i18n::tr("ytDlpUpdate", en), false).clicked() { self.update_ytdlp(); }
                 ui.add_space(6.0);
                 sw(ui, &pal, &mut self.prefs.ytdlp_video, crate::i18n::tr("ytDlpVideo", en), "");
+                set_row(ui, &pal, if en { "Browser cookies for yt-dlp" } else { "Cookies браузера для yt-dlp" }, if en { "Turn on only if YouTube answers \"Sign in to confirm you are not a bot\": yt-dlp then reads YouTube cookies of the chosen browser on this computer." } else { "Включайте, только если YouTube отвечает «Подтвердите, что вы не бот»: yt-dlp тогда читает cookies YouTube выбранного браузера на этом компьютере." }, |ui| {
+                    let cur = self.prefs.ytdlp_cookies.clone();
+                    egui::ComboBox::from_id_salt("ytck").selected_text(if cur.is_empty() { if en { "Off" } else { "Выключено" } } else { cur.as_str() }).show_ui(ui, |ui| {
+                        for (v, l) in [("", if en { "Off" } else { "Выключено" }), ("edge", "edge"), ("firefox", "firefox"), ("chrome", "chrome"), ("brave", "brave")] { ui.selectable_value(&mut self.prefs.ytdlp_cookies, v.to_string(), l); }
+                    });
+                });
             });
         }
     }
