@@ -1691,7 +1691,8 @@ impl SiloApp {
     pub fn onboarding(&mut self, ui: &mut Ui) {
         let pal = self.pal;
         let redo = self.pages.onb_redo;
-        if self.pages.onb_keys.is_none() { let has_key = !be::get_setting(&self.be, "youtube_api_key".into()).unwrap_or_default().trim().is_empty(); self.pages.onb_keys = Some(!redo && !has_key); if redo { self.pages.onb_step = 1; } }
+        // ключи сервисов вводятся только в Настройках, на первом запуске их не спрашиваем
+        if self.pages.onb_keys.is_none() { self.pages.onb_keys = Some(false); if redo { self.pages.onb_step = 1; } }
         let en = self.en();
         let area = ui.available_rect_before_wrap();
         let w = 760.0f32.min(area.width() - 40.0);
