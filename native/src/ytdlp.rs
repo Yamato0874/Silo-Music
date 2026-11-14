@@ -193,6 +193,9 @@ pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
 /// Скачать звуковую дорожку в файл (для заранее подготовленных треков).
 pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
+    // подготовка наперёд идёт по одной: всплески запросов чаще вызывают бот-проверку YouTube
+    static ONE: Mutex<()> = Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     // подготовка наперёд: при отказе YouTube ждём и повторяем другим клиентом (до двух повторов)
     let mut err = String::new();
     let mut ok = false;
