@@ -3,7 +3,7 @@ Unicode true
 !include "MUI2.nsh"
 
 !define APP "Silo Player Native"
-!define VER "1.3.1"
+!define VER "1.3.2"
 !define EXE "silo-native.exe"
 !define UNKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SiloPlayerNative"
 !ifndef SRC
@@ -53,7 +53,7 @@ Section "Silo Player Native"
   ; лицензия и список сторонних компонентов лежат рядом с программой
   File "..\..\LICENSE"
   File "..\THIRD_PARTY_NATIVE.md"
-  File "..\RELEASE_NOTES_1.3.1.md"
+  File "..\RELEASE_NOTES_1.3.2.md"
   ; встроенный yt-dlp (режим «Библиотека yt-dlp»): программа находит его рядом с собой
   !if /FileExists "bin\yt-dlp\yt-dlp.exe"
     SetOutPath "$INSTDIR\yt-dlp"
@@ -81,7 +81,7 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\yt-dlp"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\THIRD_PARTY_NATIVE.md"
-  Delete "$INSTDIR\RELEASE_NOTES_1.3.1.md"
+  Delete "$INSTDIR\RELEASE_NOTES_1.3.2.md"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\Silo Player (native).lnk"
   Delete "$DESKTOP\Silo Player (native).lnk"
