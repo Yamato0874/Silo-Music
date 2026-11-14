@@ -16,9 +16,9 @@
 </header>
 <main>
   <h1>A local, native music player for Windows</h1>
-  <p class="lead">Silo Player 1.1 is a free, open-source desktop app written in Rust, with no web engine inside. It finds and plays music from YouTube, builds an endless personal radio called Echo that learns your taste, and keeps everything on your computer.</p>
+  <p class="lead">Silo Player 1.2 is a free, open-source desktop app written in Rust, with no web engine inside. It finds and plays music from YouTube, builds an endless personal radio called Echo that learns your taste, and keeps everything on your computer.</p>
   <div class="btns">
-    <a class="btn primary" href="https://github.com/Yamato0874/Silo-Music/releases/latest">Download 1.1.0</a>
+    <a class="btn primary" href="https://github.com/Yamato0874/Silo-Music/releases/latest">Download 1.2.0</a>
     <a class="btn" href="https://github.com/Yamato0874/Silo-Music">Source code on GitHub</a>
     <a class="btn" href="privacy.html">Privacy Policy</a>
   </div>
@@ -31,7 +31,7 @@
 
   <h2>What it does</h2>
   <ul>
-    <li><b>yt-dlp library mode (default)</b>: search, Echo, playlists, artist pages, audio and music video from YouTube without an API key. An official-player mode is one switch away in Settings.</li>
+    <li><b>yt-dlp library mode (default)</b>: search, Echo, playlists, artist pages, audio and music video from YouTube without an API key. yt-dlp is built into the app, nothing to install. An official-player mode is one switch away in Settings.</li>
     <li><b>Next two tracks prepared ahead</b> on disk for instant start and seeking.</li>
     <li><b>Karaoke</b>: scrolling synced lyrics over the clip or cover.</li>
     <li><b>Audio upscaling</b>: Weak rebuilds the highs cut by compression in real time; Medium uses the Apollo neural network (optional download, about 2.7 GB).</li>
@@ -40,12 +40,12 @@
   </ul>
 
   <h2>How it uses YouTube</h2>
-  <p>In the default <b>yt-dlp library</b> mode the app gets audio and video through the user-installed <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, not through the official player. This does not follow the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, and yt-dlp is not bundled: the user installs it and is responsible for complying with the terms of the services used. The <b>Pure YouTube</b> mode plays through the official YouTube IFrame Player only and never extracts audio or video. See our <a href="privacy.html">Privacy Policy</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
+  <p>In the default <b>yt-dlp library</b> mode the app gets audio and video through the built-in <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, not through the official player. This does not follow the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, and the user is responsible for complying with the terms of the services used. The <b>Pure YouTube</b> mode plays through the official YouTube IFrame Player only and never extracts audio or video. See our <a href="privacy.html">Privacy Policy</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
 
   <h2>Keys and data</h2>
   <p>No account and no API key are needed in the default mode. Optional keys (Jamendo, YouTube, SoundCloud) are stored only on the user's computer. The track database lives in <code>%APPDATA%app.silo.player.native</code>.</p>
 
-  <p class="ru">По-русски: Silo Player 1.1 — бесплатный открытый нативный плеер для Windows на Rust, без веб-движка. Поиск и воспроизведение YouTube через библиотеку yt-dlp, «Эхо», караоке, апскейл звука. Все данные хранятся только на вашем компьютере.</p>
+  <p class="ru">По-русски: Silo Player 1.2 — бесплатный открытый нативный плеер для Windows на Rust, без веб-движка. Поиск и воспроизведение YouTube через библиотеку yt-dlp, «Эхо», караоке, апскейл звука. Все данные хранятся только на вашем компьютере.</p>
 </main>
 <footer>
   Silo Player is an independent open-source project (MIT License) and is not affiliated with Google, YouTube, SoundCloud or Jamendo. All trademarks belong to their owners.
