@@ -198,8 +198,10 @@ pub struct SiloApp {
     pub yt_err_toast_at: f64,
     /// треки YouTube, которые yt-dlp не смог отдать: играют официальным плеером
     force_embed: HashSet<String>,
-    /// YouTube ответил бот-проверкой: до этого момента звук YouTube сразу идёт через официальный плеер (без ожидания yt-dlp и без плашек)
-    ytdlp_pause_until: f64,
+    /// повторы yt-dlp для трека (бот-проверка и сбои): сколько уже было, когда повторить, какие треки берём другим клиентом YouTube
+    yt_retry: HashMap<String, u8>,
+    yt_retry_at: Option<(String, f64)>,
+    yt_alt: HashSet<String>,
 }
 
 impl SiloApp {
@@ -221,7 +223,7 @@ impl SiloApp {
         let cache = crate::cache::Cache::new(&local.join("cache"));
         let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
-            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(), ytdlp_pause_until: 0.0,
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(), yt_retry: HashMap::new(), yt_retry_at: None, yt_alt: HashSet::new(),
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,
@@ -565,14 +567,13 @@ impl SiloApp {
     fn src_for(&self, t: &Track) -> Option<(Src, bool)> {
         let key = crate::cache::key(&t.id);
         let file = |p: std::path::PathBuf| Src::File(p.to_string_lossy().to_string());
-        let paused = self.ctx.input(|i| i.time) < self.ytdlp_pause_until;
-        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || self.force_embed.contains(&t.id) || (paused && self.cache.orig(&key).is_none())));
+        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || self.force_embed.contains(&t.id)));
         if !embed_only {
             if self.prefs.upscale == 2 && self.enh.ready() { if let Some(p) = self.cache.enhanced(&key) { return Some((file(p), true)); } }
             if t.source != "local" { if let Some(p) = self.cache.orig(&key) { return Some((file(p), false)); } }
         }
         match t.source.as_str() {
-            "youtube" if !self.force_embed.contains(&t.id) && !paused => self.ytdlp_exe().map(|exe| (Src::Ytdlp(t.id.trim_start_matches("youtube:").to_string(), exe), false)),
+            "youtube" if !self.force_embed.contains(&t.id) => self.ytdlp_exe().map(|exe| { let v = t.id.trim_start_matches("youtube:"); (Src::Ytdlp(if self.yt_alt.contains(&t.id) { format!("{v}#alt") } else { v.to_string() }, exe), false) }),
             "youtube" => None,
             "soundcloud" => None,
             "local" => Some((Src::File(t.audio.clone()), false)),
@@ -587,7 +588,6 @@ impl SiloApp {
         if matches!(t.source.as_str(), "local" | "soundcloud" | "deezer") || self.cache.orig(&key).is_some() { return; }
         let (cache, ctx) = (self.cache.clone(), self.ctx.clone());
         if t.source == "youtube" {
-            if now < self.ytdlp_pause_until { return; }
             let Some(exe) = self.ytdlp_exe() else { return };
             if !cache.begin(&key, now) { return; }
             let vid = t.id.trim_start_matches("youtube:").to_string();
@@ -669,19 +669,21 @@ impl SiloApp {
                     let yt = cur.as_ref().filter(|c| c.source == "youtube" && self.ytdlp_exe().is_some() && !self.force_embed.contains(&c.id));
                     let now = self.ctx.input(|i| i.time);
                     if let Some(c) = yt {
-                        // yt-dlp не отдал звук: этот трек играет официальный плеер YouTube, битый файл из кэша удаляем
-                        self.force_embed.insert(c.id.clone());
+                        // yt-dlp не отдал звук: повторяем тем же yt-dlp (второй раз другим клиентом YouTube), официальный плеер не включаем
                         if let Some(p) = self.cache.orig(&crate::cache::key(&c.id)) { let _ = std::fs::remove_file(p); }
-                        // пользователю ничего не показываем: трек просто играет через официальный плеер, причина в журнале
-                        diag(&format!("yt-dlp не отдал звук ({}): {m}", c.id));
-                        if m.contains("not a bot") || m.contains("Sign in to confirm") { self.ytdlp_pause_until = now + 600.0; diag("YouTube просит подтвердить вход: 10 минут треки YouTube сразу играют официальным плеером"); }
-                        if self.prefs.show_errors && now - self.yt_err_toast_at > 120.0 {
-                            self.yt_err_toast_at = now;
-                            let short: String = m.chars().take(70).collect();
-                            self.toast(format!("yt-dlp: {short}"), ToastKind::Info);
+                        let bot = m.contains("not a bot") || m.contains("Sign in to confirm");
+                        let n = *self.yt_retry.get(&c.id).unwrap_or(&0);
+                        diag(&format!("yt-dlp не отдал звук ({}, попытка {}): {m}", c.id, n + 1));
+                        if n < if bot { 3 } else { 2 } {
+                            self.yt_retry.insert(c.id.clone(), n + 1);
+                            if n >= 1 { self.yt_alt.insert(c.id.clone()); } else { self.yt_alt.remove(&c.id); }
+                            self.yt_retry_at = Some((c.id.clone(), now + if n == 0 { 0.3 } else { 1.5 * n as f64 }));
+                        } else {
+                            // не вышло за несколько попыток: тихо идём к следующему треку
+                            self.yt_retry.remove(&c.id);
+                            self.ended();
                         }
                         self.preloaded = None;
-                        self.cur_key.clear();
                     } else {
                         self.err(format!("{}: {m}", cur.as_ref().map(|c| c.name.clone()).unwrap_or_default()));
                         if cur.as_ref().is_some_and(|c| c.source == "youtube") { self.ended(); }
@@ -690,6 +692,8 @@ impl SiloApp {
                 _ => {}
             }
         }
+        // отложенный повтор yt-dlp для текущего трека
+        if let Some((id, at)) = self.yt_retry_at.clone() { if now >= at { self.yt_retry_at = None; if self.cur().is_some_and(|c| c.id == id) { self.cur_key.clear(); } } }
         // смена текущего трека
         let key = self.cur().map(|c| format!("{}#{}", c.id, self.pos)).unwrap_or_default();
         if key != self.cur_key {

@@ -60,9 +60,10 @@ pub fn set_quality(q: &str) { *QUALITY.lock().unwrap() = q.to_string(); }
 /// Формат для yt-dlp: низкое = 48 кбит/с (HE-AAC), среднее = 128 кбит/с, высокое = самый лучший m4a (256 кбит/с у Premium, иначе 128).
 fn audio_format() -> &'static str {
     match QUALITY.lock().unwrap().as_str() {
-        "low" => "139/bestaudio[ext=m4a][abr<=64]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
-        "high" => "141/bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
-        _ => "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
+        // 18 — mp4 360p со звуком AAC: запасной вариант, когда отдельных m4a-дорожек YouTube не дал
+        "low" => "139/bestaudio[ext=m4a][abr<=64]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/18",
+        "high" => "141/bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]/18",
+        _ => "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]/18",
     }
 }
 
@@ -119,6 +120,9 @@ fn node_path() -> Option<String> {
 }
 
 /// Команда yt-dlp с общими параметрами: тайм-ауты, повторы, среда выполнения JS, если она есть.
+/// Клиенты YouTube для повтора после бот-проверки (у разных клиентов разные проверки).
+const ALT_CLIENTS: &str = "youtube:player_client=default,tv";
+
 fn base(exe: &str) -> Command {
     let mut c = cmd(exe);
     c.args(["--no-warnings", "--socket-timeout", "20", "--retries", "3"]);
@@ -165,8 +169,11 @@ pub fn auto_update(rt: &tokio::runtime::Handle, exe: String) {
 
 /// Процесс, который пишет звуковую дорожку (m4a/AAC, её умеет наш декодер) в stdout.
 pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
+    // «#alt» — повтор после отказа YouTube: другой набор клиентов
+    let (vid, alt) = match vid.strip_suffix("#alt") { Some(v) => (v, true), None => (vid, false) };
     let url = format!("https://www.youtube.com/watch?v={vid}");
     let mut c = base(exe);
+    if alt { c.args(["--extractor-args", ALT_CLIENTS]); }
     c.args(["-f", audio_format(), "--no-playlist", "--no-part", "--quiet", "-o", "-", &url])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -186,10 +193,20 @@ pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
 /// Скачать звуковую дорожку в файл (для заранее подготовленных треков).
 pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
-    let o = base(exe)
-        .args(["-f", audio_format(), "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
-        .output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
-    if !o.status.success() { let _ = std::fs::remove_file(out); return Err(last_line(&o.stderr)); }
+    // подготовка наперёд: при отказе YouTube ждём и повторяем другим клиентом (до двух повторов)
+    let mut err = String::new();
+    let mut ok = false;
+    for attempt in 0..3 {
+        if attempt > 0 { std::thread::sleep(std::time::Duration::from_millis(1500 * attempt)); }
+        let mut c = base(exe);
+        if attempt > 0 { c.args(["--extractor-args", ALT_CLIENTS]); }
+        let o = c.args(["-f", audio_format(), "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
+            .output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
+        if o.status.success() { ok = true; break; }
+        err = last_line(&o.stderr);
+        crate::app::diag(&format!("подготовка {vid}, попытка {}: {err}", attempt + 1));
+    }
+    if !ok { let _ = std::fs::remove_file(out); return Err(err); }
     if std::fs::metadata(out).map(|m| m.len()).unwrap_or(0) < 10_000 { let _ = std::fs::remove_file(out); return Err("yt-dlp: файл пустой".into()); }
     Ok(())
 }
