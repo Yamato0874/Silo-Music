@@ -49,6 +49,8 @@ pub struct Prefs {
     pub yt_mode: String,
     pub ytdlp_path: String,
     pub ytdlp_video: bool,
+    /// браузер для cookies yt-dlp ("" — не использовать)
+    pub ytdlp_cookies: String,
     pub tray: bool,
     /// режим YouTube уже переведён на yt-dlp по умолчанию (однократно)
     pub yt_default_v2: bool,
@@ -61,7 +63,7 @@ impl Default for Prefs {
             shuffle: false, repeat: "off".into(), autoplay: true, crossfade: 0.0, gapless: true, normalize: false, eq_on: false, eq: vec![0.0; 10],
             quality: "normal".into(), theme: "amber".into(), lang: "ru".into(), volume: 0.8, onboarded: false, diversity: "balanced".into(), tastes: vec![], artists: vec![],
             show_video: false, lang_strict: true, rate: 1.0, notify: true, autostart: false, eq_auto: false,
-            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, tray: true, yt_default_v2: true, upscale: 0,
+            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, ytdlp_cookies: String::new(), tray: true, yt_default_v2: true, upscale: 0,
         }
     }
 }
@@ -511,6 +513,7 @@ impl SiloApp {
     }
 
     pub fn apply_engine_prefs(&mut self) {
+        crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
         let p = &self.prefs;
         let mut eq = [0f32; 10];
         for (i, v) in p.eq.iter().take(10).enumerate() { eq[i] = *v; }
@@ -713,6 +716,7 @@ impl SiloApp {
                 if old.theme != self.prefs.theme { self.pal = Pal::get(&self.prefs.theme); self.pal.apply(&self.ctx); }
                 if old.autostart != self.prefs.autostart { crate::platform::set_autostart(self.prefs.autostart); }
                 if old.yt_mode != self.prefs.yt_mode || old.ytdlp_path != self.prefs.ytdlp_path { self.ytdlp_ok = None; }
+                crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
                 self.apply_engine_prefs();
             }
         }

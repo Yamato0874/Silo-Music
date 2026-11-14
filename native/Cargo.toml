@@ -8,6 +8,10 @@ description = "Silo Player — нативный интерфейс (egui) пов
 name = "silo-native"
 path = "src/main.rs"
 
+[features]
+# сборка «всё в одном»: yt-dlp.exe (путь в SILO_YTDLP_PATH при сборке) зашивается в exe и сам распаковывается в папку данных
+embed-ytdlp = []
+
 [dependencies]
 silo-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
