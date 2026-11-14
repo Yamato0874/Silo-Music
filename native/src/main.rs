@@ -6,6 +6,7 @@ mod audio;
 mod backend;
 mod cache;
 mod enhance;
+mod exciter;
 mod demo;
 mod embed;
 mod i18n;

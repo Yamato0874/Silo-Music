@@ -1237,7 +1237,7 @@ impl SiloApp {
             "sound" => {
                 card(ui, &pal, ui.available_width(), |ui| {
                     let ai_ready = self.enh.ready();
-                    set_row(ui, &pal, if en { "Audio upscaling" } else { "Апскейл звука" }, if en { "Weak: high-quality resampler and a gentle exciter that restores highs cut by compression, in real time. Medium: the Apollo neural network (download it below), a permanent mode. Strong is in development." } else { "Слабый: качественный пересэмплер и мягкий эксайтер, возвращает верх, срезанный сжатием, в реальном времени. Средний: нейросеть Apollo (скачивается ниже), постоянный режим. Сильный в разработке." }, |ui| {
+                    set_row(ui, &pal, if en { "Audio upscaling" } else { "Апскейл звука" }, if en { "Weak: rebuilds the highs that compression cut off, in real time; sound below the cut-off is not changed. Medium: the Apollo neural network (download it below), a permanent mode. Strong is in development." } else { "Слабый: достраивает верх, срезанный сжатием, в реальном времени; звук ниже среза не меняется. Средний: нейросеть Apollo (скачивается ниже), постоянный режим. Сильный в разработке." }, |ui| {
                         for (v, ru, enl) in [(3u8, "Сильный", "Strong"), (2, "Средний", "Medium"), (1, "Слабый", "Weak"), (0, "Нет", "Off")] {
                             let enabled = v <= 1 || (v == 2 && ai_ready);
                             let r = btn_sized(ui, &pal, V::Chip, None, if en { enl } else { ru }, self.prefs.upscale == v, 28.0, enabled);

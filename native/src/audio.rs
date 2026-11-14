@@ -110,6 +110,8 @@ struct Shared {
     device_lost: AtomicBool,
     /// качественный пересэмплер (апскейл)
     hq: AtomicBool,
+    /// сбросить хвост достройки верха (смена трека, перемотка)
+    bwe_reset: AtomicBool,
 }
 
 /// Публичный «пульт» движка.
@@ -146,6 +148,7 @@ impl Engine {
             repaint: Mutex::new(None),
             device_lost: AtomicBool::new(false),
             hq: AtomicBool::new(false),
+            bwe_reset: AtomicBool::new(false),
         });
         let s2 = sh.clone();
         // поток-владелец устройства вывода: при отключении наушников пересоздаёт поток на новом устройстве
@@ -177,6 +180,7 @@ impl Engine {
             return;
         }
         for x in d.iter_mut() { if let Some(o) = x.take() { o.cancel.store(true, Relaxed); } }
+        self.sh.bwe_reset.store(true, Relaxed);
         let deck = Deck::new(token, dur_hint, speed);
         if start_at > 0.0 { *deck.seek_req.lock().unwrap() = Some(start_at); f64_store(&deck.base, start_at); }
         d[a] = Some(deck.clone());
@@ -206,6 +210,7 @@ impl Engine {
         let mut d = self.sh.decks.lock().unwrap();
         for x in d.iter_mut() { if let Some(o) = x.take() { o.cancel.store(true, Relaxed); } }
         *self.sh.fade.lock().unwrap() = None;
+        self.sh.bwe_reset.store(true, Relaxed);
         self.sh.playing.store(false, Relaxed);
     }
     pub fn set_playing(&self, p: bool) { self.sh.playing.store(p, Relaxed); }
@@ -216,6 +221,7 @@ impl Engine {
         if let Some(x) = &d[self.sh.active.load(Relaxed)] {
             let s = sec.max(0.0);
             f64_store(&x.seek_from, x.pos(self.rate()));
+            self.sh.bwe_reset.store(true, Relaxed);
             *x.seek_req.lock().unwrap() = Some(s);
             // позиция сразу на новом месте, пока декодер перематывает
             f64_store(&x.base, s);
@@ -313,13 +319,15 @@ struct Mixer {
     fx_ver: u64,
     comp_env: f32,
     gain: f32,
-    /// эксайтер: полоса выше ~4,5 кГц → мягкое насыщение → снова фильтр (только новые гармоники)
-    exc: [[Biquad; 2]; 2],
+    /// «Слабый» апскейл: достройка верха, срезанного сжатием (см. exciter.rs)
+    bwe: crate::exciter::Bwe,
+    bwe_rate: u32,
+    bwe_on: bool,
 }
 
 impl Mixer {
     fn new(sh: Arc<Shared>) -> Mixer {
-        Mixer { sh, out: vec![], tmp: vec![], eq: [[Biquad::default(); 2]; 10], fx: Fx::default(), fx_ver: 0, comp_env: 0.0, gain: 0.0, exc: [[Biquad::default(); 2]; 2] }
+        Mixer { sh, out: vec![], tmp: vec![], eq: [[Biquad::default(); 2]; 10], fx: Fx::default(), fx_ver: 0, comp_env: 0.0, gain: 0.0, bwe: crate::exciter::Bwe::new(48000.0, 12.0), bwe_rate: 48000, bwe_on: false }
     }
     fn pull(deck: &Deck, dst: &mut [f32]) -> usize {
         let Ok(mut b) = deck.buf.try_lock() else { return 0 };
@@ -402,10 +410,16 @@ impl Mixer {
                     let g = if self.fx.eq_on { self.fx.eq[i] } else { 0.0 };
                     for c in 0..2 { self.eq[i][c].set(kind, *fq, g, 1.1, rate as f32); }
                 }
-                for c in 0..2 { self.exc[0][c].set(3, 4500.0, 0.0, 0.707, rate as f32); self.exc[1][c].set(3, 6000.0, 0.0, 0.707, rate as f32); }
                 self.sh.hq.store(self.fx.upscale > 0, Relaxed);
             }
         }
+        // «Слабый» апскейл: достраиваем верх, срезанный сжатием (до эквалайзера, чтобы он видел уже готовый звук)
+        if self.fx.upscale > 0 {
+            if self.bwe_rate != rate { self.bwe.set_rate(rate as f32); self.bwe_rate = rate; }
+            if self.sh.bwe_reset.swap(false, Relaxed) || !self.bwe_on { self.bwe.reset(); }
+            self.bwe_on = true;
+            self.bwe.process(&mut self.out[..n]);
+        } else { self.bwe_on = false; self.sh.bwe_reset.store(false, Relaxed); }
         let eq_on = self.fx.eq_on && self.fx.eq.iter().any(|g| g.abs() > 0.01);
         let vol = f32_load(&self.sh.volume);
         let vol = vol * vol; // ощущаемая громкость ближе к линейной шкале ползунка
@@ -415,14 +429,6 @@ impl Mixer {
             let (mut l, mut r) = (self.out[i * 2], self.out[i * 2 + 1]);
             if eq_on {
                 for b in self.eq.iter_mut() { l = b[0].run(l); r = b[1].run(r); }
-            }
-            if self.fx.upscale > 0 {
-                // мягкий эксайтер: добавляет верхние гармоники, которые срезает сжатие mp3/aac
-                let amt = match self.fx.upscale { 1 => 0.10, 2 => 0.14, _ => 0.18 };
-                let (hl, hr) = (self.exc[0][0].run(l), self.exc[0][1].run(r));
-                let (sl, sr) = ((hl * 4.0).tanh() * 0.25, (hr * 4.0).tanh() * 0.25);
-                l += self.exc[1][0].run(sl) * amt * 4.0;
-                r += self.exc[1][1].run(sr) * amt * 4.0;
             }
             if self.fx.normalize {
                 let lv = l.abs().max(r.abs());
@@ -452,9 +458,10 @@ impl Mixer {
 
 /// Биквадратный фильтр (RBJ): полка снизу, пики, полка сверху — как BiquadFilterNode в Web Audio.
 #[derive(Clone, Copy, Default)]
-struct Biquad { b0: f32, b1: f32, b2: f32, a1: f32, a2: f32, z1: f32, z2: f32 }
+pub struct Biquad { b0: f32, b1: f32, b2: f32, a1: f32, a2: f32, z1: f32, z2: f32 }
 impl Biquad {
-    fn set(&mut self, kind: u8, f: f32, gain_db: f32, q: f32, fs: f32) {
+    /// kind: 0 нижняя полка, 1 пик, 2 верхняя полка, 3 фильтр верхних частот, 4 фильтр нижних частот, 5 полосовой (постоянная ширина)
+    pub fn set(&mut self, kind: u8, f: f32, gain_db: f32, q: f32, fs: f32) {
         let a = 10f32.powf(gain_db / 40.0);
         let w0 = 2.0 * std::f32::consts::PI * (f / fs).min(0.49);
         let (cw, sw) = (w0.cos(), w0.sin());
@@ -478,6 +485,18 @@ impl Biquad {
                 b0 = (1.0 + cw) / 2.0; b1 = -(1.0 + cw); b2 = (1.0 + cw) / 2.0;
                 a0 = 1.0 + alpha; a1 = -2.0 * cw; a2 = 1.0 - alpha;
             }
+            4 => {
+                // фильтр нижних частот
+                let alpha = sw / (2.0 * q);
+                b0 = (1.0 - cw) / 2.0; b1 = 1.0 - cw; b2 = (1.0 - cw) / 2.0;
+                a0 = 1.0 + alpha; a1 = -2.0 * cw; a2 = 1.0 - alpha;
+            }
+            5 => {
+                // полосовой фильтр с постоянным усилением 0 дБ на центре
+                let alpha = sw / (2.0 * q);
+                b0 = alpha; b1 = 0.0; b2 = -alpha;
+                a0 = 1.0 + alpha; a1 = -2.0 * cw; a2 = 1.0 - alpha;
+            }
             _ => {
                 let alpha = sw / (2.0 * q);
                 b0 = 1.0 + alpha * a; b1 = -2.0 * cw; b2 = 1.0 - alpha * a;
@@ -487,7 +506,7 @@ impl Biquad {
         self.b0 = b0 / a0; self.b1 = b1 / a0; self.b2 = b2 / a0; self.a1 = a1 / a0; self.a2 = a2 / a0;
     }
     #[inline]
-    fn run(&mut self, x: f32) -> f32 {
+    pub fn run(&mut self, x: f32) -> f32 {
         let y = self.b0 * x + self.z1;
         self.z1 = self.b1 * x - self.a1 * y + self.z2;
         self.z2 = self.b2 * x - self.a2 * y;

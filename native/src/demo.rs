@@ -39,11 +39,14 @@ pub fn selftest(app: &mut SiloApp, ctx: &egui::Context) {
             app.prefs.volume = 0.0; app.set_volume_live(0.0);
             app.prefs.yt_mode = if mode == "embed" { "embed".into() } else { "ytdlp".into() };
             app.prefs.ytdlp_path = std::env::var("SILO_FAKE_YTDLP").unwrap_or_default();
+            if let Ok(u) = std::env::var("SILO_UPSCALE") { app.prefs.upscale = u.parse().unwrap_or(0); }
+            if std::env::var("SILO_HOLD").is_ok() { app.prefs.repeat = "one".into(); app.prefs.gapless = false; }
             app.tab = Tab::Search; app.demo_query("кино группа крови");
             app.bench_step = 1; app.selftest_at = t; log(app, "search sent");
         }
         1 if app.demo_result_count() > 0 => { log(app, "results"); if let Some(tr) = app.demo_first_result() { eprintln!("[selftest] first = {} / {} / {}s / {}", tr.name, tr.artist, tr.duration, tr.id); app.play(vec![tr], 0, false); } app.bench_step = 2; app.selftest_at = t; }
         1 if t - app.selftest_at > 15.0 => { log(app, "NO RESULTS"); std::process::exit(2); }
+        2 if std::env::var("SILO_HOLD").is_ok() => { if t - app.selftest_at > 3.0 { log(app, "playing (удержание для замера)"); app.bench_step = 99; } }
         2 if t - app.selftest_at > 3.0 => { log(app, "playing 3s"); app.seek(14.0); app.bench_step = 3; app.selftest_at = t; }
         3 if t - app.selftest_at > 1.5 => { log(app, "after seek (during download)"); app.bench_step = 4; app.selftest_at = t; }
         4 if t - app.selftest_at > 7.0 => { log(app, "after download"); app.seek(2.0); app.bench_step = 5; app.selftest_at = t; }
