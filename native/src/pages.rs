@@ -328,9 +328,8 @@ impl SiloApp {
         self.load_once("missing", self.pages.missing.is_some(), async move {
             let g = |k: &str| be::get_setting(&b, k.into()).unwrap_or_default();
             let mut m = vec![];
-            if g("jamendo_client_id").trim().is_empty() { m.push("jamendo".to_string()); }
-            if g("youtube_api_key").trim().is_empty() && !crate::backend::ytdlp_mode().is_some() { m.push("youtube".into()); }
-            if g("soundcloud_client_id").trim().is_empty() || g("soundcloud_client_secret").trim().is_empty() { m.push("soundcloud".into()); }
+            // плашки «не указан ключ» не показываем: библиотека yt-dlp работает без ключей
+            let _ = &g;
             m
         }, |a, m| a.pages.missing = Some(m));
     }
@@ -532,15 +531,15 @@ impl SiloApp {
         if self.pages.q != before { self.pages.q_changed_at = now; self.pages.sug_sel = -1; }
         // подсказки (Deezer) через 0,25 с и поиск при наборе через 0,7 с
         let is_link = q.starts_with("http://") || q.starts_with("https://");
-        if false && self.pages.sug_for != q {
+        if q.chars().count() >= 2 && !is_link && now - self.pages.q_changed_at > 0.25 && self.pages.sug_for != q {
             self.pages.sug_for = q.clone();
             let b = self.be.clone();
             let qq = q.clone();
-            self.spawn(async move { be::suggest_tracks(&b, qq).await }, |a, r| { a.pages.sug = r.unwrap_or_default(); });
+            self.spawn(async move { be::suggest_tracks(&b, qq).await }, { let q = q.clone(); move |a, r| { if a.pages.sug_for == q { a.pages.sug = r.unwrap_or_default(); } } });
         }
         if q.chars().count() < 2 { self.pages.sug.clear(); self.pages.sug_for.clear(); }
-        if false && self.pages.q_auto_done != q { self.pages.q_auto_done = q.clone(); self.search_go(None, true); }
-        if self.pages.q_changed_at > 0.0 && now - self.pages.q_changed_at < 1.0 { ui.ctx().request_repaint_after(std::time::Duration::from_millis(120)); }
+        if q.chars().count() >= 2 && !is_link && now - self.pages.q_changed_at > 0.55 && self.pages.q_auto_done != q { self.pages.q_auto_done = q.clone(); self.search_go(None, true); }
+        if self.pages.q_changed_at > 0.0 && now - self.pages.q_changed_at < 1.2 { ui.ctx().request_repaint_after(std::time::Duration::from_millis(120)); }
         // список подсказок под полем
         let mut picked: Option<usize> = None;
         if !self.pages.sug.is_empty() && ui.memory(|m| m.has_focus(egui::Id::new("search-input"))) {
@@ -699,7 +698,7 @@ impl SiloApp {
         if my != self.pages.seq { return; }
         self.pages.busy = false;
         match r {
-            Ok((mut v, e)) => { be::drop_banned(&self.be, &mut v); self.pages.res = Some(Arc::new(v)); self.pages.warn = e; if let Some(l) = self.pages.lists.get_mut("search") { l.limit = 100; } }
+            Ok((mut v, e)) => { be::drop_banned(&self.be, &mut v); self.pages.res = Some(Arc::new(v)); for x in &e { crate::app::diag(x); } self.pages.warn = if self.prefs.show_errors { e } else { vec![] }; if let Some(l) = self.pages.lists.get_mut("search") { l.limit = 100; } }
             Err(e) => self.err(e),
         }
     }
@@ -1254,7 +1253,6 @@ impl SiloApp {
                     sw(ui, &pal, &mut self.prefs.normalize, crate::i18n::tr("normalize", en), crate::i18n::tr("normalizeHint", en));
                     sw(ui, &pal, &mut self.prefs.eq_on, crate::i18n::tr("eqOn", en), "");
                     let on = self.prefs.eq_on;
-                    set_row(ui, &pal, crate::i18n::tr("eqAutoOpt", en), "", |ui| { switch(ui, &pal, &mut self.prefs.eq_auto, on); });
                 });
                 ui.add_space(8.0);
                 self.ai_tile(ui);
@@ -1425,12 +1423,7 @@ impl SiloApp {
                 ui.add_space(6.0);
                 sw(ui, &pal, &mut self.prefs.ytdlp_video, crate::i18n::tr("ytDlpVideo", en), "");
                 sw(ui, &pal, &mut self.prefs.show_errors, if en { "Show error messages (for developers)" } else { "Показывать сообщения об ошибках (для разработчика)" }, if en { "Errors are always written to diag.log in the app data folder" } else { "Ошибки всегда пишутся в diag.log в папке данных приложения" });
-                set_row(ui, &pal, if en { "Browser cookies for yt-dlp" } else { "Cookies браузера для yt-dlp" }, if en { "Turn on only if YouTube answers \"Sign in to confirm you are not a bot\": yt-dlp then reads YouTube cookies of the chosen browser on this computer." } else { "Включайте, только если YouTube отвечает «Подтвердите, что вы не бот»: yt-dlp тогда читает cookies YouTube выбранного браузера на этом компьютере." }, |ui| {
-                    let cur = self.prefs.ytdlp_cookies.clone();
-                    egui::ComboBox::from_id_salt("ytck").selected_text(if cur.is_empty() { if en { "Off" } else { "Выключено" } } else { cur.as_str() }).show_ui(ui, |ui| {
-                        for (v, l) in [("", if en { "Off" } else { "Выключено" }), ("edge", "edge"), ("firefox", "firefox"), ("chrome", "chrome"), ("brave", "brave")] { ui.selectable_value(&mut self.prefs.ytdlp_cookies, v.to_string(), l); }
-                    });
-                });
+
             });
         }
     }
@@ -1553,13 +1546,7 @@ impl SiloApp {
             }
         });
         type Svc = (&'static str, &'static str, &'static [(&'static str, &'static str, bool)], [&'static str; 2], [&'static [&'static str]; 2]);
-        let svcs: [Svc; 5] = [
-            ("Jamendo", "https://devportal.jamendo.com", &[("jamendo_client_id", "Jamendo client_id", false)],
-                ["Jamendo — главный источник музыки: свободные треки с лицензиями Creative Commons, их можно слушать, скачивать и обрабатывать эквалайзером. Без ключа поиск Jamendo, «Эхо» и скачивание не работают.", "Jamendo is the main music source: free Creative Commons tracks you can stream, download and run through the equalizer. Without a key Jamendo search, Echo and downloads do not work."],
-                [&["Откройте devportal.jamendo.com и войдите (или зарегистрируйтесь, это бесплатно).", "Создайте приложение (Create an application), название любое, например «Silo Player».", "Скопируйте Client ID и вставьте ниже."], &["Open devportal.jamendo.com and sign in (or sign up, it is free).", "Create an application, any name, e.g. “Silo Player”.", "Copy the Client ID and paste it below."]]),
-            ("Google Custom Search", "https://programmablesearchengine.google.com/controlpanel/create", &[("google_cse_key", "Custom Search API key", true), ("google_cse_cx", "Search engine ID (cx)", false)],
-                ["Для режима «по ссылке»: поиск по названию находит треки на YouTube и SoundCloud без их ключей, и они играют внутри приложения. 100 поисков в день бесплатно.", "For link mode: searching by name finds tracks on YouTube and SoundCloud without their keys, and they play inside the app. 100 searches a day free."],
-                [&["Откройте programmablesearchengine.google.com и создайте поисковую систему по сайтам youtube.com и soundcloud.com.", "Скопируйте её ID (cx).", "В console.cloud.google.com включите «Custom Search API» и создайте ключ API."], &["Open programmablesearchengine.google.com and create a search engine for youtube.com and soundcloud.com.", "Copy its ID (cx).", "In console.cloud.google.com enable “Custom Search API” and create an API key."]]),
+        let svcs: [Svc; 3] = [
             ("ListenBrainz", "https://listenbrainz.org/settings/", &[("listenbrainz_token", "ListenBrainz token", true)],
                 ["Необязательно. Silo будет отправлять в ваш профиль ListenBrainz, что вы дослушали (скробблинг). Без токена ничего никуда не уходит.", "Optional. Silo will send what you finished listening to your ListenBrainz profile (scrobbling). Without a token nothing is sent."],
                 [&["Войдите на listenbrainz.org.", "Откройте Настройки и скопируйте User token."], &["Sign in at listenbrainz.org.", "Open Settings and copy the User token."]]),

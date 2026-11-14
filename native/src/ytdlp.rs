@@ -54,8 +54,6 @@ pub fn start_download(rt: &tokio::runtime::Handle) {
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static LAST_ERR: Mutex<String> = Mutex::new(String::new());
-/// Браузер, из которого yt-dlp берёт cookies ("" = не брать). Нужен, когда YouTube просит подтвердить, что вы не бот.
-static COOKIES: Mutex<String> = Mutex::new(String::new());
 /// Качество звука из настроек: low | normal | high. Наш декодер читает m4a (AAC), поэтому выбор идёт между m4a-потоками YouTube.
 static QUALITY: Mutex<String> = Mutex::new(String::new());
 pub fn set_quality(q: &str) { *QUALITY.lock().unwrap() = q.to_string(); }
@@ -67,7 +65,6 @@ fn audio_format() -> &'static str {
         _ => "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
     }
 }
-pub fn set_cookies_browser(b: &str) { *COOKIES.lock().unwrap() = b.trim().to_string(); }
 
 pub fn last_error() -> String {
     let e = LAST_ERR.lock().unwrap().clone();
@@ -125,7 +122,6 @@ fn node_path() -> Option<String> {
 fn base(exe: &str) -> Command {
     let mut c = cmd(exe);
     c.args(["--no-warnings", "--socket-timeout", "20", "--retries", "3"]);
-    { let b = COOKIES.lock().unwrap().clone(); if !b.is_empty() { c.args(["--cookies-from-browser", &b]); } }
     if knows(exe, "--js-runtimes") {
         if let Some(n) = node_path() { c.args(["--js-runtimes", &format!("node:{n}")]); }
     }

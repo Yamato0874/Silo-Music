@@ -162,15 +162,6 @@ pub fn open_url(url: &str) -> Result<(), String> {
 }
 
 /// Полноэкранное окно другой программы (игра, видео): тяжёлые фоновые задачи на это время ждут.
-/// Какой браузер с профилем YouTube найден на этом компьютере (для cookies yt-dlp): Firefox, затем Edge, Chrome, Brave.
-pub fn installed_browser() -> Option<&'static str> {
-    let ad = |k: &str| std::env::var_os(k).map(std::path::PathBuf::from);
-    let (roam, local) = (ad("APPDATA")?, ad("LOCALAPPDATA")?);
-    [("firefox", roam.join("Mozilla").join("Firefox").join("Profiles")), ("edge", local.join("Microsoft").join("Edge").join("User Data")),
-     ("chrome", local.join("Google").join("Chrome").join("User Data")), ("brave", local.join("BraveSoftware").join("Brave-Browser").join("User Data"))]
-        .into_iter().find(|(_, p)| p.is_dir()).map(|(n, _)| n)
-}
-
 pub fn fullscreen_app_active() -> bool {
     use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};

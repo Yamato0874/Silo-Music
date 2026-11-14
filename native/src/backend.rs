@@ -396,14 +396,19 @@ pub async fn deezer_search(s: &App, q: &str, limit: u32) -> R<Vec<Track>> {
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
-/// Подсказки при вводе: несколько треков Deezer.
+/// Подсказки при вводе: несколько результатов YouTube через yt-dlp (без квоты), кэш в базе на 6 часов.
 pub async fn suggest_tracks(s: &App, query: String) -> R<Vec<Track>> {
-    if query.trim().chars().count() < 2 { return Ok(vec![]); }
-    let _ = query; return Ok(vec![]);
-    #[allow(unreachable_code)]
-    let mut v = deezer_search(&s, &query, 25).await?;
+    let q = query.trim().to_lowercase();
+    if q.chars().count() < 2 || ytdlp_mode().is_none() { return Ok(vec![]); }
+    let ck = format!("sug:{q}");
+    if let Some(v) = db(&s).cache_get(&ck, 6 * 3600).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
+    let key = setting(&s, "youtube_api_key")?;
+    let mut v = ytw::search(&key, &q, 8).await.map_err(yt_err)?;
+    let kept = ytw::keep_music(&key, v.clone()).await.unwrap_or_else(|_| v.clone());
+    v = kept;
     drop_banned(&s, &mut v);
     v.truncate(6);
+    let _ = db(&s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
 static FREE_START: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

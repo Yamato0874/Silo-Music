@@ -530,7 +530,6 @@ impl SiloApp {
     }
 
     pub fn apply_engine_prefs(&mut self) {
-        crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
         crate::ytdlp::set_quality(&self.prefs.quality);
         let p = &self.prefs;
         let mut eq = [0f32; 10];
@@ -563,8 +562,7 @@ impl SiloApp {
     fn src_for(&self, t: &Track) -> Option<(Src, bool)> {
         let key = crate::cache::key(&t.id);
         let file = |p: std::path::PathBuf| Src::File(p.to_string_lossy().to_string());
-        let blocked = self.ctx.input(|i| i.time) < self.yt_blocked_until;
-        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || blocked || self.force_embed.contains(&t.id)));
+        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || self.force_embed.contains(&t.id)));
         if !embed_only {
             if self.prefs.upscale == 2 && self.enh.ready() { if let Some(p) = self.cache.enhanced(&key) { return Some((file(p), true)); } }
             if t.source != "local" { if let Some(p) = self.cache.orig(&key) { return Some((file(p), false)); } }
@@ -664,38 +662,14 @@ impl SiloApp {
                 Event::Error(t, m) if t == self.token => {
                     let cur = self.cur().cloned();
                     let yt = cur.as_ref().filter(|c| c.source == "youtube" && self.ytdlp_exe().is_some() && !self.force_embed.contains(&c.id));
-                    // YouTube просит подтвердить, что это не бот: один раз спрашиваем разрешения использовать вход в YouTube из браузера
-                    let botcheck = { let l = m.to_lowercase(); l.contains("not a bot") || l.contains("sign in to confirm") };
                     let now = self.ctx.input(|i| i.time);
-                    // бот-проверка: на полчаса молча играем через официальный плеер, yt-dlp на каждый трек не дёргаем
-                    if botcheck && yt.is_some() { self.yt_blocked_until = now + 1800.0; }
-                    if botcheck && yt.is_some() && self.prefs.ytdlp_cookies.is_empty() && !self.prefs.ytdlp_cookies_asked {
-                        self.prefs.ytdlp_cookies_asked = true;
-                        if let Some(b) = crate::platform::installed_browser() {
-                            let ok = rfd::MessageDialog::new().set_level(rfd::MessageLevel::Info).set_title("Silo Player")
-                                .set_description(format!("YouTube просит подтвердить, что вы не бот, и не отдаёт звук.
-
-Разрешить yt-dlp использовать вход в YouTube из браузера {b} на этом компьютере? Cookies читаются только локально, нигде не сохраняются и не показываются, их получает только YouTube. Изменить можно в Настройках → YouTube."))
-                                .set_buttons(rfd::MessageButtons::YesNo).show();
-                            if ok == rfd::MessageDialogResult::Yes {
-                                self.prefs.ytdlp_cookies = b.to_string();
-                                crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
-                                self.yt_blocked_until = 0.0;
-                                self.preloaded = None;
-                                self.cur_key.clear();
-                                self.toast("Пробую снова с входом из браузера", ToastKind::Info);
-                                return;
-                            }
-                        }
-                    }
                     if let Some(c) = yt {
                         // yt-dlp не отдал звук: этот трек играет официальный плеер YouTube, битый файл из кэша удаляем
                         self.force_embed.insert(c.id.clone());
                         if let Some(p) = self.cache.orig(&crate::cache::key(&c.id)) { let _ = std::fs::remove_file(p); }
                         // пользователю ничего не показываем: трек просто играет через официальный плеер, причина в журнале
                         diag(&format!("yt-dlp не отдал звук ({}): {m}", c.id));
-                        if self.prefs.show_errors && (botcheck && !self.bot_toast_shown || !botcheck && now - self.yt_err_toast_at > 120.0) {
-                            self.bot_toast_shown |= botcheck;
+                        if self.prefs.show_errors && now - self.yt_err_toast_at > 120.0 {
                             self.yt_err_toast_at = now;
                             let short: String = m.chars().take(70).collect();
                             self.toast(format!("yt-dlp: {short}"), ToastKind::Info);
@@ -770,7 +744,6 @@ impl SiloApp {
                 if old.theme != self.prefs.theme { self.pal = Pal::get(&self.prefs.theme); self.pal.apply(&self.ctx); }
                 if old.autostart != self.prefs.autostart { crate::platform::set_autostart(self.prefs.autostart); }
                 if old.yt_mode != self.prefs.yt_mode || old.ytdlp_path != self.prefs.ytdlp_path { self.ytdlp_ok = None; }
-                crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
                 self.apply_engine_prefs();
             }
         }
