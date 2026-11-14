@@ -345,6 +345,8 @@ fn paint_cover_q(ui: &Ui, pal: &Pal, imgs: &Images, url: &str, rect: Rect, radiu
             let (iw, ih) = (w as f32, h as f32);
             let ar = rect.width() / rect.height();
             let uv = if iw / ih > ar { let k = (ar * ih) / iw; Rect::from_min_max(Pos2::new((1.0 - k) / 2.0, 0.0), Pos2::new((1.0 + k) / 2.0, 1.0)) } else { let k = (iw / ar) / ih; Rect::from_min_max(Pos2::new(0.0, (1.0 - k) / 2.0), Pos2::new(1.0, (1.0 + k) / 2.0)) };
+            let (dx, dy) = (uv.width() * 0.012, uv.height() * 0.012);
+            let uv = Rect::from_min_max(Pos2::new(uv.min.x + dx, uv.min.y + dy), Pos2::new(uv.max.x - dx, uv.max.y - dy));
             egui::Image::new((t.id(), rect.size())).uv(uv).corner_radius(CornerRadius::same(radius)).paint_at(ui, rect);
         }
         None => {

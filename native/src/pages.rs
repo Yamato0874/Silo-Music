@@ -134,6 +134,8 @@ fn day_key(off_days: i64) -> String { let d = std::time::SystemTime::now().durat
 impl SiloApp {
     /// После скачивания трека список «Загрузки» и сведения о папке перечитываются.
     pub fn pages_reset_downloads(&mut self) { self.pages.dl_dir = None; self.pages.lists.remove("downloads"); }
+    /// Для снимков экрана: показать шаг знакомства.
+    pub fn demo_onboarding(&mut self, step: u8) { self.stage = false; self.show_q = false; self.show_l = false; self.karaoke = false; self.prefs.onboarded = false; self.pages.onb_keys = Some(false); self.pages.onb_step = step.into(); }
     pub fn demo_query(&mut self, q: &str) { self.pages.q = q.into(); self.search_go(None, false); }
     pub fn demo_set_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); }
     pub fn open_settings_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); self.tab = Tab::Settings; }
@@ -221,10 +223,11 @@ impl SiloApp {
             // оценки и меню при наведении
             if hov {
                 let mut c = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(Pos2::new(rect.right() - 60.0 - acts_w, rect.top()), Pos2::new(rect.right() - 56.0, rect.bottom()))).layout(Layout::left_to_right(Align::Center)));
+                c.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
                 for (ic, val, tip) in [("like", 1, "like"), ("dislike", -1, "dislike"), ("ban", -2, "ban")] {
-                    if icon_btn(&mut c, &pal, ic, 28.0, r == val, crate::i18n::tr(tip, en)).clicked() { rate = Some((t.clone(), if r == val { 0 } else { val })); }
+                    if icon_btn(&mut c, &pal, ic, 30.0, r == val, crate::i18n::tr(tip, en)).clicked() { rate = Some((t.clone(), if r == val { 0 } else { val })); }
                 }
-                let mr = icon_btn(&mut c, &pal, "more", 28.0, false, crate::i18n::tr("more", en));
+                let mr = icon_btn(&mut c, &pal, "more", 30.0, false, crate::i18n::tr("more", en));
                 egui::Popup::menu(&mr).show(|ui| { if let Some(a) = track_menu(ui, &pal, en, t, r, &pls, pl) { act = Some(a); } });
             } else if r != 0 {
                 let ic = match r { 1 => "like", -1 => "dislike", _ => "ban" };
@@ -1625,23 +1628,43 @@ impl SiloApp {
             });
             return changed;
         }
-        ui.horizontal_wrapped(|ui| {
-            for f in taste::families() {
-                let on = value.contains(&f.id);
-                let cnt = taste::selected_in(&f.id, value);
-                let label = if cnt > 0 { format!("{} · {cnt}", taste::name(f, en)) } else { taste::name(f, en).to_string() };
-                if btn(ui, &pal, V::Chip, None, &label, on).clicked() { toggle(value, &f.id); changed = true; }
-                let open = self.pages.taste_open.as_deref() == Some(f.id.as_str());
-                if icon_btn(ui, &pal, if open { "chevD" } else { "chevR" }, 26.0, open, crate::i18n::tr("subgenres", en)).clicked() { self.pages.taste_open = if open { None } else { Some(f.id.clone()) }; }
-                ui.add_space(6.0);
-            }
-        });
-        if let Some(open) = self.pages.taste_open.clone() {
-            ui.add_space(6.0);
-            card(ui, &pal, ui.available_width(), |ui| {
-                ui.label(RichText::new(format!("{}: {}", crate::i18n::tr("subgenres", en), taste::taste_name(&open, en).unwrap_or_default())).color(pal.mut_));
-                ui.horizontal_wrapped(|ui| { for n in taste::descendants(&open) { if btn_sm(ui, &pal, V::Chip, None, taste::name(n, en), value.contains(&n.id)).clicked() { toggle(value, &n.id); changed = true; } } });
+        // сетка карточек: семейство жанров (нажатие выбирает всё семейство) и под ним его поджанры чипами
+        let fams = taste::families();
+        let gap = 10.0;
+        let cols = if ui.available_width() > 760.0 { 3 } else { 2 };
+        let cw = ((ui.available_width() - gap * (cols as f32 - 1.0)) / cols as f32).floor();
+        for row in fams.chunks(cols) {
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = gap;
+                for f in row {
+                    ui.allocate_ui_with_layout(Vec2::new(cw, 0.0), Layout::top_down(Align::Min), |ui| {
+                        ui.set_width(cw);
+                        let on = value.contains(&f.id);
+                        let cnt = taste::selected_in(&f.id, value);
+                        egui::Frame::new().fill(if on { pal.acc_soft() } else { pal.panel }).stroke(Stroke::new(1.0, if on || cnt > 0 { mix(pal.line, pal.acc, 0.6) } else { pal.line })).corner_radius(12).inner_margin(12).show(ui, |ui| {
+                            ui.set_width(cw - 24.0);
+                            ui.horizontal(|ui| {
+                                let label = if cnt > 0 { format!("{} · {cnt}", taste::name(f, en)) } else { taste::name(f, en).to_string() };
+                                if btn(ui, &pal, V::Chip, None, &label, on).clicked() { toggle(value, &f.id); changed = true; }
+                            });
+                            ui.add_space(6.0);
+                            let subs = taste::descendants(&f.id);
+                            let open = self.pages.taste_open.as_deref() == Some(f.id.as_str());
+                            let shown = if open { subs.len() } else { subs.len().min(6) };
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+                                for n in subs.iter().take(shown) {
+                                    if btn_sm(ui, &pal, V::Chip, None, taste::name(n, en), value.contains(&n.id)).clicked() { toggle(value, &n.id); changed = true; }
+                                }
+                                if subs.len() > 6 && btn_sm(ui, &pal, V::Ghost, None, &if open { crate::i18n::tr("less", en).to_string() } else { format!("+{}", subs.len() - 6) }, false).clicked() {
+                                    self.pages.taste_open = if open { None } else { Some(f.id.clone()) };
+                                }
+                            });
+                        });
+                    });
+                }
             });
+            ui.add_space(gap);
         }
         ui.add_space(6.0);
         if btn_sm(ui, &pal, V::Ghost, None, crate::i18n::tr(if self.pages.taste_more { "less" } else { "moreGroups" }, en), false).clicked() { self.pages.taste_more = !self.pages.taste_more; }

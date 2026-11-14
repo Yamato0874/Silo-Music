@@ -213,7 +213,7 @@ pub fn tr(k: &str, en: bool) -> &'static str {
         "skip" => ("Пропустить", "Skip"),
         "done" => ("Готово", "Done"),
         "tastesQ" => ("Какую музыку вы слушаете?", "What music do you listen to?"),
-        "tastesHint" => ("Выберите всё, что нравится. Под это настроим эквалайзер, «Эхо» и подсказки в поиске. Изменить можно в настройках.", "Pick everything you like. We will tune the equalizer, Echo and search suggestions. You can change it in settings."),
+        "tastesHint" => ("Выберите всё, что нравится. Под это мы подберём «Эхо» и подсказки в поиске. Изменить можно в настройках.", "Pick everything you like. We will tune Echo and search suggestions to it. You can change it in settings."),
         "tastesTitle" => ("Мои жанры", "My genres"),
         "tastesNote" => ("Эквалайзер подстраивается под выбранные жанры.", "The equalizer adapts to the selected genres."),
         "diversityTitle" => ("Эхо: склонность к новому", "Echo: openness to new"),
