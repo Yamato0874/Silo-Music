@@ -67,7 +67,7 @@ impl eframe::App for SiloApp {
                                 paint_icon(ui.painter(), r, "alert", pal.acc, false);
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if btn_sm(ui, &pal, V::Solid, None, self.t("settings"), false).clicked() { go = true; }
-                                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| { ui.add(egui::Label::new(RichText::new(self.t("ytDlpBanner")).color(pal.fg).size(12.5)).wrap()); });
+                                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| { let (busy, msg) = crate::ytdlp::download_state(); let text = if busy { "Скачиваю yt-dlp (один раз, около 24 МБ)…".to_string() } else if msg.starts_with("не удалось") { format!("{msg}. {}", self.t("ytDlpBanner")) } else { self.t("ytDlpBanner").to_string() }; ui.add(egui::Label::new(RichText::new(text).color(pal.fg).size(12.5)).wrap()); });
                                 });
                             });
                         });
