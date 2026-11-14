@@ -605,6 +605,8 @@ impl SiloApp {
 
     /// Каждый кадр: смена трека, подбор YouTube для Deezer, предзагрузка, события движка, состояние.
     pub fn tick(&mut self) {
+        // «Средний» нельзя держать включённым без установленной нейросети
+        if self.prefs.upscale == 2 && matches!(self.enh.state(), crate::enhance::Install::Missing | crate::enhance::Install::Failed(_)) { self.prefs.upscale = 1; }
         // режим yt-dlp: ядро ходит в YouTube только через yt-dlp, без ключа и квоты
         *be::YTDLP.lock().unwrap() = (self.prefs.yt_mode == "ytdlp").then(|| self.ytdlp_exe().unwrap_or_default());
         while let Ok(j) = self.rx.try_recv() { j(self); }

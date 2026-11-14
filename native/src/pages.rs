@@ -132,6 +132,7 @@ impl SiloApp {
     pub fn demo_query(&mut self, q: &str) { self.pages.q = q.into(); self.search_go(None, false); }
     pub fn demo_set_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); }
     pub fn open_settings_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); self.tab = Tab::Settings; }
+    pub fn demo_results(&self) -> Vec<Track> { self.pages.res.as_ref().map(|r| r.to_vec()).unwrap_or_default() }
     pub fn demo_result_count(&self) -> usize { self.pages.res.as_ref().map(|r| r.len()).unwrap_or(0) }
     pub fn demo_first_result(&self) -> Option<Track> { self.pages.res.as_ref().and_then(|r| r.first().cloned()) }
     fn push(&mut self, a: Act) { self.pages.acts.push(a); }
@@ -1224,11 +1225,14 @@ impl SiloApp {
             }
             "sound" => {
                 card(ui, &pal, ui.available_width(), |ui| {
-                    set_row(ui, &pal, if en { "Audio upscaling" } else { "Апскейл звука" }, if en { "Weak: high-quality resampler and a gentle exciter that restores highs cut by compression, in real time. Medium and Strong (neural, offline with cache) are coming." } else { "Слабый: качественный пересэмплер и мягкий эксайтер, возвращает верх, срезанный сжатием, в реальном времени. Средний и Сильный (нейросеть, заранее с кэшем) — в разработке." }, |ui| {
+                    let ai_ready = self.enh.ready();
+                    set_row(ui, &pal, if en { "Audio upscaling" } else { "Апскейл звука" }, if en { "Weak: high-quality resampler and a gentle exciter that restores highs cut by compression, in real time. Medium: the Apollo neural network (download it below), a permanent mode. Strong is in development." } else { "Слабый: качественный пересэмплер и мягкий эксайтер, возвращает верх, срезанный сжатием, в реальном времени. Средний: нейросеть Apollo (скачивается ниже), постоянный режим. Сильный в разработке." }, |ui| {
                         for (v, ru, enl) in [(3u8, "Сильный", "Strong"), (2, "Средний", "Medium"), (1, "Слабый", "Weak"), (0, "Нет", "Off")] {
-                            let r = btn_sized(ui, &pal, V::Chip, None, if en { enl } else { ru }, self.prefs.upscale == v, 28.0, v <= 1);
-                            if v > 1 { r.clone().on_hover_text(if en { "In development" } else { "В разработке" }); }
-                            if r.clicked() { self.prefs.upscale = v; }
+                            let enabled = v <= 1 || (v == 2 && ai_ready);
+                            let r = btn_sized(ui, &pal, V::Chip, None, if en { enl } else { ru }, self.prefs.upscale == v, 28.0, enabled);
+                            if v == 3 { r.clone().on_hover_text(if en { "In development" } else { "В разработке" }); }
+                            if v == 2 && !ai_ready { r.clone().on_hover_text(if en { "Download the enhancer below first" } else { "Сначала скачайте улучшитель ниже" }); }
+                            if r.clicked() && enabled { self.prefs.upscale = v; }
                         }
                     });
                     sw(ui, &pal, &mut self.prefs.normalize, crate::i18n::tr("normalize", en), crate::i18n::tr("normalizeHint", en));
@@ -1236,6 +1240,8 @@ impl SiloApp {
                     let on = self.prefs.eq_on;
                     set_row(ui, &pal, crate::i18n::tr("eqAutoOpt", en), "", |ui| { switch(ui, &pal, &mut self.prefs.eq_auto, on); });
                 });
+                ui.add_space(8.0);
+                self.ai_tile(ui);
                 if self.prefs.eq_on {
                     ui.add_space(8.0);
                     card(ui, &pal, ui.available_width(), |ui| {
@@ -1281,6 +1287,72 @@ impl SiloApp {
                 ui.label(RichText::new("egui · symphonia · cpal · Media Foundation · WebView2 (только для официальных плееров)").color(pal.mut_).size(12.0));
             }
         }
+    }
+
+    /// Плашка «Средний»: нейросеть Apollo. Скачивание и установка запускаются кнопкой, удаляются одной кнопкой.
+    fn ai_tile(&mut self, ui: &mut Ui) {
+        use crate::enhance::Install;
+        let pal = self.pal;
+        let en = self.en();
+        let st = self.enh.state();
+        let (queued, running, done, paused) = self.enh.queue_info();
+        let t = |ru: &'static str, e: &'static str| if en { e } else { ru };
+        egui::Frame::new().fill(pal.raise()).stroke(Stroke::new(1.0, pal.line)).corner_radius(12).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(t("Средний: нейросеть Apollo", "Medium: Apollo neural network")).font(bold(15.0)));
+                let (txt, col) = match &st { Install::Ready => (t("установлено", "installed"), pal.ok()), Install::Installing { .. } => (t("устанавливается", "installing"), pal.acc), Install::Failed(_) => (t("ошибка", "error"), pal.danger()), Install::Missing => (t("не установлено", "not installed"), pal.mut_) };
+                ui.label(RichText::new(txt).color(col).size(12.5));
+            });
+            ui.add_space(4.0);
+            ui.add(egui::Label::new(RichText::new(t(
+                "Постоянный режим: пока «Средний» включён, два следующих трека заранее скачиваются, улучшаются нейросетью и играют из кэша. Apollo восстанавливает музыку после сжатия (mp3, AAC, Opus): достраивает срезанный верх. Это не настоящий битрейт, а правдоподобная реконструкция: оцените на слух. Работает в режиме «Библиотека yt-dlp», для своих файлов и Jamendo. Не нужна — не скачивайте.",
+                "A permanent mode: while Medium is on, the next two tracks are downloaded ahead, enhanced by the neural network and played from the cache. Apollo restores music after compression (mp3, AAC, Opus) by rebuilding the cut-off highs. It is not a real bitrate but a plausible reconstruction: judge it by ear. Works in yt-dlp library mode, for your own files and Jamendo. Do not download it if you do not need it.")).color(pal.mut_).size(12.5)).wrap());
+            ui.add_space(8.0);
+            match &st {
+                Install::Missing | Install::Failed(_) => {
+                    if let Install::Failed(m) = &st { ui.label(RichText::new(format!("{}: {m}", t("Ошибка", "Error"))).color(pal.danger()).size(12.5)); ui.add_space(4.0); }
+                    ui.add(egui::Label::new(RichText::new(format!("{} {}", t("Скачается: менеджер Python (uv), Python 3.10, PyTorch с поддержкой видеокарты NVIDIA (около 2,7 ГБ), код Apollo и веса (около 67 МБ). На диске около 5 ГБ в отдельной папке:", "Will download: the uv Python manager, Python 3.10, PyTorch with NVIDIA GPU support (about 2.7 GB), the Apollo code and weights (about 67 MB). About 5 GB on disk in a separate folder:"), self.enh.root.display())).size(12.5)).wrap());
+                    ui.label(RichText::new(t("Лицензия Apollo: CC BY-SA 4.0. Скачивание можно отменить.", "Apollo license: CC BY-SA 4.0. The download can be cancelled.")).color(pal.mut_).size(12.0));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if btn(ui, &pal, V::Primary, Some("download"), if matches!(st, Install::Failed(_)) { t("Повторить установку", "Retry install") } else { t("Скачать и установить", "Download and install") }, false).clicked() { self.enh.start_install(); }
+                        if matches!(st, Install::Failed(_)) && btn(ui, &pal, V::Solid, Some("copy"), t("Скопировать путь к журналу", "Copy log path"), false).clicked() { self.pages.acts.push(Act::Copy(self.enh.log_path().display().to_string(), t("Путь к журналу скопирован", "Log path copied").into())); }
+                    });
+                }
+                Install::Installing { step, detail, frac } => {
+                    ui.label(RichText::new(step).strong());
+                    let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 8.0), Sense::hover());
+                    ui.painter().rect_filled(r, CornerRadius::same(4), pal.sunk());
+                    match frac {
+                        Some(f) => { ui.painter().rect_filled(Rect::from_min_size(r.min, Vec2::new(r.width() * f.clamp(0.0, 1.0), 8.0)), CornerRadius::same(4), pal.acc); }
+                        None => { let tm = ui.input(|i| i.time) as f32; let x = ((tm * 0.6) % 1.0) * (r.width() + 80.0) - 80.0; let seg = Rect::from_min_max(Pos2::new((r.left() + x).max(r.left()), r.top()), Pos2::new((r.left() + x + 80.0).min(r.right()).max(r.left()), r.bottom())); ui.painter().rect_filled(seg, CornerRadius::same(4), pal.acc); }
+                    }
+                    if !detail.is_empty() { ui.label(RichText::new(detail).color(pal.mut_).size(12.5)); }
+                    ui.add_space(6.0);
+                    if btn(ui, &pal, V::Solid, Some("close"), t("Отмена", "Cancel"), false).clicked() { self.enh.cancel_install(); }
+                    repaint(ui.ctx(), 400);
+                }
+                Install::Ready => {
+                    let (_, enh_bytes, enh_n) = self.cache.sizes();
+                    let mut s = format!("{}: {queued}{}; {}: {done}; {}: {enh_n} ({} {})", t("В очереди", "Queued"), if running.is_some() { t(", один в работе", ", one in progress") } else { "" }, t("улучшено за сеанс", "enhanced this session"), t("в кэше", "in cache"), enh_bytes / 1_048_576, t("МБ", "MB"));
+                    if paused { s.push_str(&format!(". {}", t("Пауза: открыта полноэкранная программа", "Paused: a full-screen program is open"))); }
+                    let failed = self.enh.failed_count();
+                    if failed > 0 { s.push_str(&format!(". {}: {failed} ({})", t("Не удалось", "Failed"), self.enh.enhance_log_path().display())); }
+                    ui.add(egui::Label::new(RichText::new(s).size(12.5)).wrap());
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if btn(ui, &pal, V::Solid, Some("trash"), t("Очистить кэш улучшенных", "Clear enhanced cache"), false).clicked() { self.cache.clear_enhanced(); self.toast(t("Кэш улучшенных треков очищен", "Enhanced cache cleared"), ToastKind::Ok); }
+                        if btn(ui, &pal, V::Solid, Some("close"), t("Удалить улучшитель", "Remove the enhancer"), false).clicked() {
+                            self.asks.push(Ask::Confirm { title: t("Удалить улучшитель?", "Remove the enhancer?").into(), body: t("Python, PyTorch, Apollo и кэш улучшенных треков будут удалены (около 5 ГБ). Скачать можно будет снова.", "Python, PyTorch, Apollo and the enhanced cache will be deleted (about 5 GB). You can download it again.").into(), ok: t("Удалить", "Remove").into(), danger: true, check: None, on_ok: Box::new(|a, _| {
+                                let en = a.en();
+                                match a.enh.uninstall() { Ok(()) => { if a.prefs.upscale == 2 { a.prefs.upscale = 1; } a.cache.clear_enhanced(); a.toast(if en { "Enhancer removed" } else { "Улучшитель удалён" }, ToastKind::Ok); } Err(e) => a.err(e) }
+                            }) });
+                        }
+                    });
+                }
+            }
+        });
     }
 
     /// Обновить yt-dlp (кнопка в настройках): YouTube часто меняется, и старая версия перестаёт работать.

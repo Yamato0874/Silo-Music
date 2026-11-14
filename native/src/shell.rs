@@ -115,6 +115,18 @@ impl SiloApp {
             if !now.is_empty() { paint_trunc(ui, r.min + Vec2::new(72.0, r.height() / 2.0 - 8.0), &now, FontId::proportional(12.5), pal.mut_, (r.width() - 260.0).max(50.0), Align2::LEFT_TOP); }
         }
         let bw = if self.mini { 34.0 } else { 46.0 };
+        // статус нейросети «Средний»: что сейчас делается
+        if !self.mini {
+            use crate::enhance::Install;
+            let (q, run, _, paused) = self.enh.queue_info();
+            let msg = match self.enh.state() {
+                Install::Installing { step, .. } => Some(format!("{}: {step}", if self.en() { "Installing the enhancer" } else { "Установка улучшителя" })),
+                Install::Ready if self.prefs.upscale == 2 && paused => Some(if self.en() { "Enhancing paused (full-screen program)".into() } else { "Улучшение на паузе (полноэкранная программа)".into() }),
+                Install::Ready if self.prefs.upscale == 2 && (run.is_some() || q > 0) => Some(format!("{}: {}", if self.en() { "Enhancing next tracks" } else { "Улучшаю следующие треки" }, q + usize::from(run.is_some()))),
+                _ => None,
+            };
+            if let Some(m) = msg { paint_trunc(ui, Pos2::new(r.right() - bw * 3.0 - 12.0, r.center().y), &m, FontId::proportional(12.0), pal.acc, (r.width() - 420.0).max(60.0), Align2::RIGHT_CENTER); }
+        }
         let mut x = r.right() - bw;
         for (k, ic) in [(2, "close"), (1, if maxed { "restore" } else { "max" }), (0, "min")] {
             if self.mini && k == 1 { continue; }
@@ -169,7 +181,7 @@ impl SiloApp {
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(26.0), Sense::hover());
             paint_icon(ui.painter(), r, "echo", pal.acc, false);
-            if !narrow { ui.label(RichText::new("Silo").font(bold(19.0)).color(pal.fg)); ui.label(RichText::new("native").size(11.0).color(pal.mut_)); }
+            if !narrow { ui.label(RichText::new("Silo").font(bold(19.0)).color(pal.fg)); ui.label(RichText::new(concat!("native ", env!("CARGO_PKG_VERSION"))).size(11.0).color(pal.mut_)); }
         });
         ui.add_space(14.0);
         for (group, items) in NAV.iter() {

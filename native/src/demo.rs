@@ -29,6 +29,7 @@ pub fn bench(app: &mut SiloApp, ctx: &egui::Context) {
 /// Самопроверка yt-dlp с поддельным yt-dlp.exe (SILO_SELFTEST=ytdlp, SILO_FAKE_YTDLP=<путь>): поиск → воспроизведение → перемотка. Журнал — в stderr.
 pub fn selftest(app: &mut SiloApp, ctx: &egui::Context) {
     let Ok(mode) = std::env::var("SILO_SELFTEST") else { return };
+    if mode == "enhance" { selftest_enhance(app, ctx); return; }
     let t = ctx.input(|i| i.time);
     let st = app.bench_step;
     let log = |app: &SiloApp, what: &str| eprintln!("[selftest t={:.1}] {what}: route={} playing={} pos={:.1} dur={:.1} results={} toasts={:?}", ctx.input(|i| i.time), app.route_name(), app.ps.playing, app.ps.pos, app.ps.dur, app.demo_result_count(), app.toasts.iter().map(|x| x.text.clone()).collect::<Vec<_>>());
@@ -53,6 +54,32 @@ pub fn selftest(app: &mut SiloApp, ctx: &egui::Context) {
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
 }
 
+/// Самопроверка подготовки наперёд и «Среднего» апскейла с поддельными yt-dlp и Python (SILO_SELFTEST=enhance).
+fn selftest_enhance(app: &mut SiloApp, ctx: &egui::Context) {
+    let t = ctx.input(|i| i.time);
+    let st = app.bench_step;
+    let files = |d: &std::path::Path| -> String { let mut v: Vec<String> = std::fs::read_dir(d).map(|rd| rd.flatten().map(|e| format!("{}({}K)", e.file_name().to_string_lossy().chars().take(8).collect::<String>(), e.metadata().map(|m| m.len() / 1024).unwrap_or(0))).collect()).unwrap_or_default(); v.sort(); v.join(" ") };
+    let log = |app: &SiloApp, what: &str| eprintln!("[enh t={:.1}] {what}: route={} playing={} pos={:.1} src={} | cache[{}] enh[{}] queue={:?} state={:?}", ctx.input(|i| i.time), app.route_name(), app.ps.playing, app.ps.pos, app.last_src, files(&app.cache.dir), files(&app.cache.enh_dir), app.enh.queue_info(), app.enh.state());
+    match st {
+        0 if t > 1.0 => {
+            app.prefs.onboarded = true;
+            app.prefs.volume = 0.0; app.set_volume_live(0.0);
+            app.prefs.yt_mode = "ytdlp".into();
+            app.prefs.ytdlp_path = std::env::var("SILO_FAKE_YTDLP").unwrap_or_default();
+            app.prefs.upscale = 2;
+            app.tab = Tab::Search; app.demo_query("кино группа крови");
+            app.bench_step = 1; app.selftest_at = t; log(app, "start");
+        }
+        1 if app.demo_result_count() > 0 => { let all = app.demo_results(); app.play(all, 0, false); app.bench_step = 2; app.selftest_at = t; log(app, "playing #1"); }
+        2 if t - app.selftest_at > 5.0 => { log(app, "5s after start"); app.bench_step = 3; app.selftest_at = t; }
+        3 if t - app.selftest_at > 8.0 => { log(app, "13s after start"); app.skip(1); app.bench_step = 4; app.selftest_at = t; }
+        4 if t - app.selftest_at > 2.5 => { log(app, "track #2 playing"); app.skip(1); app.bench_step = 5; app.selftest_at = t; }
+        5 if t - app.selftest_at > 2.5 => { log(app, "track #3 playing"); std::process::exit(0); }
+        _ => {}
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+}
+
 pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
     selftest(app, ctx);
     bench(app, ctx);
@@ -69,7 +96,7 @@ pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
             std::process::exit(0);
         }
     }
-    if d.at == 0.0 { d.at = now; d.saved = serde_json::to_string(&app.prefs).ok(); }
+    if d.at == 0.0 { d.at = now; d.saved = serde_json::to_string(&app.prefs).ok(); app.prefs.onboarded = true; }
     if !d.waiting {
         // подготовка шага
         let step = STEPS[d.step].0;

@@ -3,7 +3,7 @@ Unicode true
 !include "MUI2.nsh"
 
 !define APP "Silo Player Native"
-!define VER "1.0.0"
+!define VER "1.1.0"
 !define EXE "silo-native.exe"
 !define UNKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SiloPlayerNative"
 !ifndef SRC
