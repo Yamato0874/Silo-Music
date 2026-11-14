@@ -531,6 +531,7 @@ impl SiloApp {
 
     pub fn apply_engine_prefs(&mut self) {
         crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
+        crate::ytdlp::set_quality(&self.prefs.quality);
         let p = &self.prefs;
         let mut eq = [0f32; 10];
         for (i, v) in p.eq.iter().take(10).enumerate() { eq[i] = *v; }

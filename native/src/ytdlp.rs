@@ -56,6 +56,17 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static LAST_ERR: Mutex<String> = Mutex::new(String::new());
 /// Браузер, из которого yt-dlp берёт cookies ("" = не брать). Нужен, когда YouTube просит подтвердить, что вы не бот.
 static COOKIES: Mutex<String> = Mutex::new(String::new());
+/// Качество звука из настроек: low | normal | high. Наш декодер читает m4a (AAC), поэтому выбор идёт между m4a-потоками YouTube.
+static QUALITY: Mutex<String> = Mutex::new(String::new());
+pub fn set_quality(q: &str) { *QUALITY.lock().unwrap() = q.to_string(); }
+/// Формат для yt-dlp: низкое = 48 кбит/с (HE-AAC), среднее = 128 кбит/с, высокое = самый лучший m4a (256 кбит/с у Premium, иначе 128).
+fn audio_format() -> &'static str {
+    match QUALITY.lock().unwrap().as_str() {
+        "low" => "139/bestaudio[ext=m4a][abr<=64]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
+        "high" => "141/bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
+        _ => "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
+    }
+}
 pub fn set_cookies_browser(b: &str) { *COOKIES.lock().unwrap() = b.trim().to_string(); }
 
 pub fn last_error() -> String {
@@ -160,7 +171,7 @@ pub fn auto_update(rt: &tokio::runtime::Handle, exe: String) {
 pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
     let mut c = base(exe);
-    c.args(["-f", "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]", "--no-playlist", "--no-part", "--quiet", "-o", "-", &url])
+    c.args(["-f", audio_format(), "--no-playlist", "--no-part", "--quiet", "-o", "-", &url])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = c.spawn().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
@@ -180,7 +191,7 @@ pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
 pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
     let o = base(exe)
-        .args(["-f", "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]", "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
+        .args(["-f", audio_format(), "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
         .output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
     if !o.status.success() { let _ = std::fs::remove_file(out); return Err(last_line(&o.stderr)); }
     if std::fs::metadata(out).map(|m| m.len()).unwrap_or(0) < 10_000 { let _ = std::fs::remove_file(out); return Err("yt-dlp: файл пустой".into()); }
