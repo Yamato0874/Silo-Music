@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Silo Player: a music player for your PC</title>
-<meta name="description" content="Silo Player is a free, open-source desktop music player with an endless personal radio, search across Jamendo, YouTube and SoundCloud, and playlist import. Everything stays on your computer.">
+<title>Silo Player: a local music player for Windows</title>
+<meta name="description" content="Silo Player is a free, open-source, fully native Windows music player written in Rust: YouTube search and playback through the yt-dlp library, endless personal radio, karaoke, audio upscaling, playlist import. No web engine, no accounts, no telemetry.">
 <link rel="icon" href="img/logo.png">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -15,10 +15,11 @@
   <nav><a href="privacy.html">Privacy Policy</a><a href="terms.html">Terms of Use</a><a href="https://github.com/Yamato0874/Silo-Music">GitHub</a></nav>
 </header>
 <main>
-  <h1>A calm, fast music player for your PC</h1>
-  <p class="lead">Silo Player is a free, open-source desktop app that finds music across Jamendo, YouTube and SoundCloud, plays it in one place, and builds an endless personal radio called Echo that learns your taste. Your listening data never leaves your computer.</p>
+  <h1>A local, native music player for Windows</h1>
+  <p class="lead">Silo Player 1.1 is a free, open-source desktop app written in Rust, with no web engine inside. It finds and plays music from YouTube, builds an endless personal radio called Echo that learns your taste, and keeps everything on your computer.</p>
   <div class="btns">
-    <a class="btn primary" href="https://github.com/Yamato0874/Silo-Music">Source code on GitHub</a>
+    <a class="btn primary" href="https://github.com/Yamato0874/Silo-Music/releases/latest">Download 1.1.0</a>
+    <a class="btn" href="https://github.com/Yamato0874/Silo-Music">Source code on GitHub</a>
     <a class="btn" href="privacy.html">Privacy Policy</a>
   </div>
 
@@ -30,20 +31,21 @@
 
   <h2>What it does</h2>
   <ul>
-    <li><b>One search</b> across your downloads, Jamendo, YouTube and SoundCloud, with the source shown on every track.</li>
-    <li><b>Echo</b>: an endless stream that adapts to what you finish, like and skip, and loads the next tracks ahead of time.</li>
-    <li><b>Playlist import</b> from M3U, PLS, CSV and JSON files, plain text lists, and public YouTube, SoundCloud and Jamendo playlist links.</li>
-    <li><b>Equalizer, gapless playback and crossfade</b> for free-licensed music from Jamendo and your own files.</li>
-    <li><b>Strict language filter</b>, 7 themes, Russian and English interface.</li>
+    <li><b>yt-dlp library mode (default)</b>: search, Echo, playlists, artist pages, audio and music video from YouTube without an API key. An official-player mode is one switch away in Settings.</li>
+    <li><b>Next two tracks prepared ahead</b> on disk for instant start and seeking.</li>
+    <li><b>Karaoke</b>: scrolling synced lyrics over the clip or cover.</li>
+    <li><b>Audio upscaling</b>: Weak rebuilds the highs cut by compression in real time; Medium uses the Apollo neural network (optional download, about 2.7 GB).</li>
+    <li><b>Own audio engine</b>: equalizer, crossfade, gapless playback, speed without pitch change, volume normalization.</li>
+    <li><b>Echo</b>, playlist import (M3U, PLS, CSV, JSON, text, public playlist links), strict language filter, 7 themes, Russian and English interface.</li>
   </ul>
 
   <h2>How it uses YouTube</h2>
-  <p>Silo Player uses the official <a href="https://developers.google.com/youtube/v3">YouTube Data API v3</a> only to search for videos and playlists, and plays them exclusively through the official <a href="https://developers.google.com/youtube/iframe_api_reference">YouTube IFrame Player API</a>. It never downloads, extracts, or modifies YouTube audio or video, and it does not bypass any YouTube feature. Search results are cached on the user's own computer for up to 3 days to reduce API use. By using the YouTube features you agree to the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>; see our <a href="privacy.html">Privacy Policy</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
+  <p>In the default <b>yt-dlp library</b> mode the app gets audio and video through the user-installed <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, not through the official player. This does not follow the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, and yt-dlp is not bundled: the user installs it and is responsible for complying with the terms of the services used. The <b>Pure YouTube</b> mode plays through the official YouTube IFrame Player only and never extracts audio or video. See our <a href="privacy.html">Privacy Policy</a> and the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
 
-  <h2>Your own API keys</h2>
-  <p>Each user supplies their own free API keys (Jamendo, YouTube, SoundCloud). The app explains how to get them on first launch. Keys are stored only on the user's computer.</p>
+  <h2>Keys and data</h2>
+  <p>No account and no API key are needed in the default mode. Optional keys (Jamendo, YouTube, SoundCloud) are stored only on the user's computer. The track database lives in <code>%APPDATA%app.silo.player.native</code>.</p>
 
-  <p class="ru">По-русски: Silo Player — бесплатный открытый музыкальный плеер для ПК. Все данные (история, оценки, плейлисты, ключи) хранятся только на вашем компьютере.</p>
+  <p class="ru">По-русски: Silo Player 1.1 — бесплатный открытый нативный плеер для Windows на Rust, без веб-движка. Поиск и воспроизведение YouTube через библиотеку yt-dlp, «Эхо», караоке, апскейл звука. Все данные хранятся только на вашем компьютере.</p>
 </main>
 <footer>
   Silo Player is an independent open-source project (MIT License) and is not affiliated with Google, YouTube, SoundCloud or Jamendo. All trademarks belong to their owners.
