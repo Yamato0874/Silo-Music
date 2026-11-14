@@ -1407,8 +1407,16 @@ impl SiloApp {
                     if btn(ui, &pal, V::Solid, None, "…", false).clicked() { if let Some(p) = rfd::FileDialog::new().add_filter("yt-dlp", &["exe"]).pick_file() { self.prefs.ytdlp_path = p.display().to_string(); } }
                     if btn(ui, &pal, V::Solid, None, crate::i18n::tr("ytDlpCheck", en), false).clicked() { check = true; }
                 });
-                if check || self.ytdlp_ok.is_none() {
-                    self.ytdlp_ok = Some(match crate::ytdlp::find(&self.prefs.ytdlp_path) { Some(p) => crate::ytdlp::version(&p.to_string_lossy()).map(|v| format!("{} {v} · {}", crate::i18n::tr("ytDlpFound", en), p.display())), None => Err(crate::i18n::tr("ytDlpMissing", en).into()) });
+                if (check || self.ytdlp_ok.is_none()) && !self.ytdlp_checking {
+                    // запуск yt-dlp --version занимает около секунды: делаем это в фоне, а не на потоке интерфейса (иначе окно замирает)
+                    match crate::ytdlp::find(&self.prefs.ytdlp_path) {
+                        Some(p) => {
+                            self.ytdlp_checking = true;
+                            let found = crate::i18n::tr("ytDlpFound", en).to_string();
+                            self.spawn(async move { tokio::task::spawn_blocking(move || crate::ytdlp::version(&p.to_string_lossy()).map(|v| format!("{found} {v} · {}", p.display()))).await.map_err(|e| e.to_string()).and_then(|x| x) }, |a, r| { a.ytdlp_checking = false; a.ytdlp_ok = Some(r); });
+                        }
+                        None => { self.ytdlp_ok = Some(Err(crate::i18n::tr("ytDlpMissing", en).into())); }
+                    }
                 }
                 match &self.ytdlp_ok { Some(Ok(s)) => { ui.label(RichText::new(s).color(pal.ok())); } Some(Err(e)) => { ui.label(RichText::new(e).color(pal.danger())); } None => {} }
                 if self.ytdlp_exe().is_some() && btn(ui, &pal, V::Solid, Some("refresh"), crate::i18n::tr("ytDlpUpdate", en), false).clicked() { self.update_ytdlp(); }

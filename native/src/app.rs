@@ -173,6 +173,8 @@ pub struct SiloApp {
     pub vol_drag: bool,
     pub quit: bool,
     pub ytdlp_ok: Option<Result<String, String>>,
+    /// проверка версии yt-dlp уже идёт в фоне
+    pub ytdlp_checking: bool,
     notified_for: String,
     resolving: String,
     embed_lyrics_for: String,
@@ -234,7 +236,7 @@ impl SiloApp {
             toasts: vec![], toast_id: 0, asks: vec![], pages: Pages::default(),
             embed: None, embed_rect: None, video: None, lyrics: None, route: Route::None, token: 0, cur_key: String::new(), preloaded: None, hold: None,
             ps: PState::default(), online: true, last_session_save: 0.0, session_dirty: false, last_prefs_check: 0.0, plat, dropping: false,
-            seek_drag: None, seek_pending: None, vol_drag: false, quit: false, ytdlp_ok: None, notified_for: String::new(), resolving: String::new(), embed_lyrics_for: String::new(), demo: crate::demo::Demo::from_env(), embed_pending: None, bench_step: 0, selftest_at: 0.0, fresh_previews: Default::default(),
+            seek_drag: None, seek_pending: None, vol_drag: false, quit: false, ytdlp_ok: None, ytdlp_checking: false, notified_for: String::new(), resolving: String::new(), embed_lyrics_for: String::new(), demo: crate::demo::Demo::from_env(), embed_pending: None, bench_step: 0, selftest_at: 0.0, fresh_previews: Default::default(),
         };
         app.ratings = be::all_ratings(&app.be).unwrap_or_default();
         app.blocked = be::get_setting(&app.be, "blocked_artists".into()).ok().and_then(|x| serde_json::from_str(&x).ok()).unwrap_or_default();

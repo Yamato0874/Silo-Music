@@ -40,6 +40,11 @@ impl Platform {
         let tray = make_tray(&tx, ctx);
         let hk = make_hotkeys(&tx, ctx);
         // системная плашка Windows и медиаклавиши
+        // окно без системной рамки: просим Windows 11 скруглить углы сглаженно (иначе углы «в ступеньку»)
+        if hwnd != 0 {
+            let pref: u32 = 2; // DWMWCP_ROUND
+            unsafe { windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(hwnd as *mut std::ffi::c_void, 33, &pref as *const u32 as *const std::ffi::c_void, 4); }
+        }
         let smtc = (hwnd != 0).then(|| {
             let cfg = souvlaki::PlatformConfig { display_name: "Silo Player", dbus_name: "silo_native", hwnd: Some(hwnd as *mut std::ffi::c_void) };
             let mut c = souvlaki::MediaControls::new(cfg).ok()?;

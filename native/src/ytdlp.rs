@@ -30,15 +30,21 @@ pub fn start_download(rt: &tokio::runtime::Handle) {
             let base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
             let c = silo_core::http();
             let sums = c.get(format!("{base}/SHA2-256SUMS")).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())?;
-            let want = sums.lines().find(|l| l.trim_end().ends_with(" yt-dlp.exe")).and_then(|l| l.split_whitespace().next()).map(|s| s.to_lowercase()).ok_or("нет суммы в списке")?;
-            let bytes = c.get(format!("{base}/yt-dlp.exe")).timeout(std::time::Duration::from_secs(600)).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+            let want = sums.lines().find(|l| l.trim_end().ends_with(" yt-dlp_win.zip")).and_then(|l| l.split_whitespace().next()).map(|s| s.to_lowercase()).ok_or("нет суммы в списке")?;
+            let bytes = c.get(format!("{base}/yt-dlp_win.zip")).timeout(std::time::Duration::from_secs(600)).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
             let got = format!("{:x}", Sha256::digest(&bytes));
             if got != want { return Err("контрольная сумма yt-dlp не совпала".to_string()); }
             let dir = bin_dir();
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let tmp = dir.join("yt-dlp.exe.part");
-            std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-            std::fs::rename(&tmp, dir.join("yt-dlp.exe")).map_err(|e| e.to_string())?;
+            // распаковываем во временную папку и переименовываем: обрыв посреди загрузки не оставляет битый yt-dlp
+            let tmp = dir.join("yt-dlp.part");
+            let _ = std::fs::remove_dir_all(&tmp);
+            let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).map_err(|e| format!("архив повреждён: {e}"))?;
+            a.extract(&tmp).map_err(|e| format!("не распаковался: {e}"))?;
+            if !tmp.join("yt-dlp.exe").is_file() { let _ = std::fs::remove_dir_all(&tmp); return Err("в архиве нет yt-dlp.exe".to_string()); }
+            let fin = dir.join("yt-dlp");
+            let _ = std::fs::remove_dir_all(&fin);
+            std::fs::rename(&tmp, &fin).map_err(|e| e.to_string())?;
             Ok::<(), String>(())
         }.await;
         let mut g = DL.lock().unwrap();
@@ -67,9 +73,8 @@ pub fn find(custom: &str) -> Option<PathBuf> {
     if let Some(d) = std::env::current_exe().ok().and_then(|x| x.parent().map(|p| p.to_path_buf())) {
         for n in ["yt-dlp.exe", "yt-dlp/yt-dlp.exe"] { let p = d.join(n); if p.is_file() { return Some(p); } }
     }
-    // скачанный или распакованный из exe yt-dlp в папке данных приложения
-    let own = bin_dir().join("yt-dlp.exe");
-    if own.is_file() { return Some(own); }
+    // скачанный yt-dlp в папке данных приложения (onedir: yt-dlp\yt-dlp.exe быстрее одного файла)
+    for n in ["yt-dlp/yt-dlp.exe", "yt-dlp.exe"] { let p = bin_dir().join(n); if p.is_file() { return Some(p); } }
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).map(|d| d.join("yt-dlp.exe")).find(|p| p.is_file())
 }
@@ -80,8 +85,16 @@ fn cmd(exe: &str) -> Command {
     c
 }
 
+/// yt-dlp лежит там, куда его поставили мы: в папке данных или рядом с программой.
+fn is_managed(exe: &str) -> bool {
+    let p = std::path::Path::new(exe);
+    p.starts_with(bin_dir()) || std::env::current_exe().ok().and_then(|x| x.parent().map(|d| p.starts_with(d))).unwrap_or(false)
+}
+
 /// Знает ли эта версия yt-dlp флаг (проверяется один раз по --help, чтобы старая версия не падала от незнакомой опции).
 fn knows(exe: &str, flag: &str) -> bool {
+    // наш собственный свежий yt-dlp (скачанный или из установщика) флаги знает: --help (ещё один холодный старт) не запускаем
+    if is_managed(exe) { return true; }
     static C: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
     let m = C.get_or_init(Default::default);
     let key = format!("{exe}|{flag}");

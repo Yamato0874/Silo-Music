@@ -921,7 +921,15 @@ pub fn ytdlp_mode() -> Option<String> { YTDLP.lock().unwrap().clone() }
 pub mod ytw {
     use silo_core::{model::*, youtube, Result};
     fn dlp() -> Option<String> { super::ytdlp_mode() }
-    async fn run(exe: String, args: Vec<String>) -> Result<serde_json::Value> {
+    async fn run(mut exe: String, args: Vec<String>) -> Result<serde_json::Value> {
+        if exe.is_empty() {
+            // первый запуск: yt-dlp ещё скачивается, ждём (до полутора минут), и поиск после этого пойдёт сам
+            for _ in 0..450 {
+                if let Some(p) = crate::ytdlp::find("") { exe = p.to_string_lossy().to_string(); break; }
+                if crate::ytdlp::download_attempted() && !crate::ytdlp::download_state().0 { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
         if exe.is_empty() { return Err("yt-dlp не найден".into()); }
         tokio::task::spawn_blocking(move || crate::ytdlp::json(&exe, &args)).await.map_err(|e| silo_core::Error::Msg(e.to_string()))?.map_err(silo_core::Error::Msg)
     }
