@@ -281,11 +281,20 @@ pub struct Images {
 
 impl Images {
     pub fn new(rt: tokio::runtime::Handle) -> Images { Images { map: Default::default(), rt, tick: Default::default() } }
-    pub fn get(&self, ctx: &egui::Context, url: &str) -> Option<egui::TextureHandle> {
+    /// Крупная обложка для окна плеера (до 1280 пикселей). У YouTube берётся maxresdefault (1280x720), если её нет, обычная миниатюра.
+    pub fn get_hd(&self, ctx: &egui::Context, url: &str) -> Option<egui::TextureHandle> {
+        if url.is_empty() { return None; }
+        let hd = if url.contains("/mqdefault.jpg") || url.contains("/hqdefault.jpg") { url.replace("/mqdefault.jpg", "/maxresdefault.jpg").replace("/hqdefault.jpg", "/maxresdefault.jpg") } else { url.to_string() };
+        let key = format!("{hd}#hd");
+        match self.get_cap(ctx, &hd, &key, 1280) { Some(t) => Some(t), None => if self.is_bad(&key) { self.get(ctx, url) } else { None } }
+    }
+    fn is_bad(&self, key: &str) -> bool { matches!(self.map.lock().unwrap().get(key), Some((Img::Bad, _))) }
+    pub fn get(&self, ctx: &egui::Context, url: &str) -> Option<egui::TextureHandle> { self.get_cap(ctx, url, url, 360) }
+    fn get_cap(&self, ctx: &egui::Context, url: &str, key: &str, cap: u32) -> Option<egui::TextureHandle> {
         if url.is_empty() { return None; }
         let now = self.tick.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut m = self.map.lock().unwrap();
-        if let Some((img, used)) = m.get_mut(url) {
+        if let Some((img, used)) = m.get_mut(key) {
             *used = now;
             return match img { Img::Ready(t) => Some(t.clone()), _ => None };
         }
@@ -295,9 +304,9 @@ impl Images {
             v.sort_by_key(|x| x.1);
             for (k, _) in v.into_iter().take(150) { m.remove(&k); }
         }
-        m.insert(url.to_string(), (Img::Loading, now));
+        m.insert(key.to_string(), (Img::Loading, now));
         drop(m);
-        let (map, url2, ctx2) = (self.map.clone(), url.to_string(), ctx.clone());
+        let (map, url2, key2, ctx2) = (self.map.clone(), url.to_string(), key.to_string(), ctx.clone());
         self.rt.spawn(async move {
             let bytes = if url2.starts_with("http") {
                 match silo_core::http().get(&url2).send().await { Ok(r) if r.status().is_success() => r.bytes().await.ok().map(|b| b.to_vec()), _ => None }
@@ -305,12 +314,12 @@ impl Images {
             let res = tokio::task::spawn_blocking(move || {
                 let b = bytes?;
                 let im = image::load_from_memory(&b).ok()?;
-                let im = if im.width() > 360 || im.height() > 360 { im.thumbnail(360, 360) } else { im };
+                let im = if im.width() > cap || im.height() > cap { im.resize(cap, cap, image::imageops::FilterType::Lanczos3) } else { im };
                 let rgba = im.to_rgba8();
                 Some(egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw()))
             }).await.ok().flatten();
-            let v = match res { Some(ci) => Img::Ready(ctx2.load_texture(&url2, ci, egui::TextureOptions::LINEAR)), None => Img::Bad };
-            if let Some(e) = map.lock().unwrap().get_mut(&url2) { e.0 = v; }
+            let v = match res { Some(ci) => Img::Ready(ctx2.load_texture(&key2, ci, egui::TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)))), None => Img::Bad };
+            if let Some(e) = map.lock().unwrap().get_mut(&key2) { e.0 = v; }
             ctx2.request_repaint();
         });
         None
@@ -323,15 +332,21 @@ pub fn cover(ui: &mut Ui, pal: &Pal, imgs: &Images, url: &str, size: Vec2, radiu
     paint_cover(ui, pal, imgs, url, rect, radius);
     r
 }
-pub fn paint_cover(ui: &Ui, pal: &Pal, imgs: &Images, url: &str, rect: Rect, radius: u8) {
+pub fn paint_cover(ui: &Ui, pal: &Pal, imgs: &Images, url: &str, rect: Rect, radius: u8) { paint_cover_q(ui, pal, imgs, url, rect, radius, false) }
+/// То же для крупной обложки (окно плеера): самое большое доступное разрешение.
+pub fn paint_cover_hd(ui: &Ui, pal: &Pal, imgs: &Images, url: &str, rect: Rect, radius: u8) { paint_cover_q(ui, pal, imgs, url, rect, radius, true) }
+fn paint_cover_q(ui: &Ui, pal: &Pal, imgs: &Images, url: &str, rect: Rect, radius: u8, hd: bool) {
     if !ui.is_rect_visible(rect) { return; }
-    match imgs.get(ui.ctx(), url) {
+    let big = hd && rect.width() > 200.0;
+    match if big { imgs.get_hd(ui.ctx(), url).or_else(|| imgs.get(ui.ctx(), url)) } else { imgs.get(ui.ctx(), url) } {
         Some(t) => {
             // обрезка до пропорций прямоугольника (миниатюры YouTube 16:9)
             let [w, h] = t.size();
             let (iw, ih) = (w as f32, h as f32);
             let ar = rect.width() / rect.height();
             let uv = if iw / ih > ar { let k = (ar * ih) / iw; Rect::from_min_max(Pos2::new((1.0 - k) / 2.0, 0.0), Pos2::new((1.0 + k) / 2.0, 1.0)) } else { let k = (iw / ar) / ih; Rect::from_min_max(Pos2::new(0.0, (1.0 - k) / 2.0), Pos2::new(1.0, (1.0 + k) / 2.0)) };
+            let (dx, dy) = (uv.width() * 0.012, uv.height() * 0.012);
+            let uv = Rect::from_min_max(Pos2::new(uv.min.x + dx, uv.min.y + dy), Pos2::new(uv.max.x - dx, uv.max.y - dy));
             egui::Image::new((t.id(), rect.size())).uv(uv).corner_radius(CornerRadius::same(radius)).paint_at(ui, rect);
         }
         None => {

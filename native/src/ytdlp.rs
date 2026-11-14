@@ -30,15 +30,21 @@ pub fn start_download(rt: &tokio::runtime::Handle) {
             let base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
             let c = silo_core::http();
             let sums = c.get(format!("{base}/SHA2-256SUMS")).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())?;
-            let want = sums.lines().find(|l| l.trim_end().ends_with(" yt-dlp.exe")).and_then(|l| l.split_whitespace().next()).map(|s| s.to_lowercase()).ok_or("нет суммы в списке")?;
-            let bytes = c.get(format!("{base}/yt-dlp.exe")).timeout(std::time::Duration::from_secs(600)).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+            let want = sums.lines().find(|l| l.trim_end().ends_with(" yt-dlp_win.zip")).and_then(|l| l.split_whitespace().next()).map(|s| s.to_lowercase()).ok_or("нет суммы в списке")?;
+            let bytes = c.get(format!("{base}/yt-dlp_win.zip")).timeout(std::time::Duration::from_secs(600)).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
             let got = format!("{:x}", Sha256::digest(&bytes));
             if got != want { return Err("контрольная сумма yt-dlp не совпала".to_string()); }
             let dir = bin_dir();
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let tmp = dir.join("yt-dlp.exe.part");
-            std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-            std::fs::rename(&tmp, dir.join("yt-dlp.exe")).map_err(|e| e.to_string())?;
+            // распаковываем во временную папку и переименовываем: обрыв посреди загрузки не оставляет битый yt-dlp
+            let tmp = dir.join("yt-dlp.part");
+            let _ = std::fs::remove_dir_all(&tmp);
+            let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).map_err(|e| format!("архив повреждён: {e}"))?;
+            a.extract(&tmp).map_err(|e| format!("не распаковался: {e}"))?;
+            if !tmp.join("yt-dlp.exe").is_file() { let _ = std::fs::remove_dir_all(&tmp); return Err("в архиве нет yt-dlp.exe".to_string()); }
+            let fin = dir.join("yt-dlp");
+            let _ = std::fs::remove_dir_all(&fin);
+            std::fs::rename(&tmp, &fin).map_err(|e| e.to_string())?;
             Ok::<(), String>(())
         }.await;
         let mut g = DL.lock().unwrap();
@@ -48,9 +54,17 @@ pub fn start_download(rt: &tokio::runtime::Handle) {
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static LAST_ERR: Mutex<String> = Mutex::new(String::new());
-/// Браузер, из которого yt-dlp берёт cookies ("" = не брать). Нужен, когда YouTube просит подтвердить, что вы не бот.
-static COOKIES: Mutex<String> = Mutex::new(String::new());
-pub fn set_cookies_browser(b: &str) { *COOKIES.lock().unwrap() = b.trim().to_string(); }
+/// Качество звука из настроек: low | normal | high. Наш декодер читает m4a (AAC), поэтому выбор идёт между m4a-потоками YouTube.
+static QUALITY: Mutex<String> = Mutex::new(String::new());
+pub fn set_quality(q: &str) { *QUALITY.lock().unwrap() = q.to_string(); }
+/// Формат для yt-dlp: низкое = 48 кбит/с (HE-AAC), среднее = 128 кбит/с, высокое = самый лучший m4a (256 кбит/с у Premium, иначе 128).
+fn audio_format() -> &'static str {
+    match QUALITY.lock().unwrap().as_str() {
+        "low" => "139/bestaudio[ext=m4a][abr<=64]/bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
+        "high" => "141/bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
+        _ => "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]",
+    }
+}
 
 pub fn last_error() -> String {
     let e = LAST_ERR.lock().unwrap().clone();
@@ -67,9 +81,8 @@ pub fn find(custom: &str) -> Option<PathBuf> {
     if let Some(d) = std::env::current_exe().ok().and_then(|x| x.parent().map(|p| p.to_path_buf())) {
         for n in ["yt-dlp.exe", "yt-dlp/yt-dlp.exe"] { let p = d.join(n); if p.is_file() { return Some(p); } }
     }
-    // скачанный или распакованный из exe yt-dlp в папке данных приложения
-    let own = bin_dir().join("yt-dlp.exe");
-    if own.is_file() { return Some(own); }
+    // скачанный yt-dlp в папке данных приложения (onedir: yt-dlp\yt-dlp.exe быстрее одного файла)
+    for n in ["yt-dlp/yt-dlp.exe", "yt-dlp.exe"] { let p = bin_dir().join(n); if p.is_file() { return Some(p); } }
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).map(|d| d.join("yt-dlp.exe")).find(|p| p.is_file())
 }
@@ -80,8 +93,16 @@ fn cmd(exe: &str) -> Command {
     c
 }
 
+/// yt-dlp лежит там, куда его поставили мы: в папке данных или рядом с программой.
+fn is_managed(exe: &str) -> bool {
+    let p = std::path::Path::new(exe);
+    p.starts_with(bin_dir()) || std::env::current_exe().ok().and_then(|x| x.parent().map(|d| p.starts_with(d))).unwrap_or(false)
+}
+
 /// Знает ли эта версия yt-dlp флаг (проверяется один раз по --help, чтобы старая версия не падала от незнакомой опции).
 fn knows(exe: &str, flag: &str) -> bool {
+    // наш собственный свежий yt-dlp (скачанный или из установщика) флаги знает: --help (ещё один холодный старт) не запускаем
+    if is_managed(exe) { return true; }
     static C: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
     let m = C.get_or_init(Default::default);
     let key = format!("{exe}|{flag}");
@@ -101,7 +122,6 @@ fn node_path() -> Option<String> {
 fn base(exe: &str) -> Command {
     let mut c = cmd(exe);
     c.args(["--no-warnings", "--socket-timeout", "20", "--retries", "3"]);
-    { let b = COOKIES.lock().unwrap().clone(); if !b.is_empty() { c.args(["--cookies-from-browser", &b]); } }
     if knows(exe, "--js-runtimes") {
         if let Some(n) = node_path() { c.args(["--js-runtimes", &format!("node:{n}")]); }
     }
@@ -128,11 +148,26 @@ pub fn update(exe: &str) -> Result<String, String> {
     Ok(text.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("готово").trim().to_string())
 }
 
+/// Раз в сутки тихо запустить «yt-dlp -U» для своего (скачанного или установленного) yt-dlp. Результат пишется в журнал.
+pub fn auto_update(rt: &tokio::runtime::Handle, exe: String) {
+    static DONE: OnceLock<()> = OnceLock::new();
+    if DONE.set(()).is_err() || !is_managed(&exe) { return; }
+    let mark = bin_dir().join("last-update");
+    let fresh = std::fs::metadata(&mark).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map(|d| d.as_secs() < 86400).unwrap_or(false);
+    if fresh { return; }
+    rt.spawn_blocking(move || {
+        let r = update(&exe);
+        let _ = std::fs::create_dir_all(bin_dir());
+        let _ = std::fs::write(&mark, "");
+        crate::app::diag(&format!("обновление yt-dlp: {}", match r { Ok(m) => m, Err(e) => e }));
+    });
+}
+
 /// Процесс, который пишет звуковую дорожку (m4a/AAC, её умеет наш декодер) в stdout.
 pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
     let mut c = base(exe);
-    c.args(["-f", "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]", "--no-playlist", "--no-part", "--quiet", "-o", "-", &url])
+    c.args(["-f", audio_format(), "--no-playlist", "--no-part", "--quiet", "-o", "-", &url])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = c.spawn().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
@@ -152,7 +187,7 @@ pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
 pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
     let o = base(exe)
-        .args(["-f", "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]", "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
+        .args(["-f", audio_format(), "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
         .output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
     if !o.status.success() { let _ = std::fs::remove_file(out); return Err(last_line(&o.stderr)); }
     if std::fs::metadata(out).map(|m| m.len()).unwrap_or(0) < 10_000 { let _ = std::fs::remove_file(out); return Err("yt-dlp: файл пустой".into()); }

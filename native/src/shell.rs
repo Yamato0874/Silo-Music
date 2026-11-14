@@ -237,7 +237,7 @@ impl SiloApp {
         if let Some(c) = &cur {
             let cs = if mini { 56.0 } else { 56.0 };
             let (cr, resp) = lu.allocate_exact_size(Vec2::splat(cs), Sense::click());
-            if self.viz && !BG.load(std::sync::atomic::Ordering::Relaxed) { self.paint_viz(&lu, cr); } else { paint_cover(&lu, &pal, &self.imgs, &c.image, cr, 8); }
+            if self.viz && !BG.load(std::sync::atomic::Ordering::Relaxed) { self.paint_viz(&lu, cr); } else { paint_cover_hd(&lu, &pal, &self.imgs, &c.image, cr, 8); }
             if resp.on_hover_text(self.t("vizToggle")).clicked() { self.viz = !self.viz; }
             lu.add_space(10.0);
             let w = (left.width() - cs - 130.0).max(60.0);
@@ -514,7 +514,7 @@ impl SiloApp {
         if !has_video {
             if let Some(c) = &cur {
                 let s = (rect.height() * 0.5).min(rect.width() * 0.5).min(420.0);
-                paint_cover(ui, &pal, &self.imgs, &c.image, Rect::from_center_size(rect.center() - Vec2::new(0.0, if self.karaoke { rect.height() * 0.18 } else { 0.0 }), Vec2::splat(s)), 14);
+                paint_cover_hd(ui, &pal, &self.imgs, &c.image, Rect::from_center_size(rect.center() - Vec2::new(0.0, if self.karaoke { rect.height() * 0.18 } else { 0.0 }), Vec2::splat(s)), 14);
                 if cur.as_ref().is_some_and(|c| c.source == "youtube") && self.prefs.yt_mode == "ytdlp" && !self.prefs.ytdlp_video {
                     ui.painter().text(rect.center_bottom() - Vec2::new(0.0, 30.0), Align2::CENTER_CENTER, self.t("ytDlpVideo"), FontId::proportional(12.0), Color32::from_gray(140));
                 }

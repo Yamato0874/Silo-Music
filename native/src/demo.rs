@@ -11,9 +11,9 @@ impl Demo {
     }
 }
 
-const STEPS: [(&str, f64); 18] = [
+const STEPS: [(&str, f64); 20] = [
     ("01-home", 6.0), ("02-search", 7.0), ("03-echo", 3.0), ("04-liked", 3.0), ("05-playlists", 3.0), ("06-history", 3.0),
-    ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("09b-ai-missing", 2.0), ("09c-ai-installing", 2.0), ("09d-ai-ready", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 2.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0),
+    ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("09b-ai-missing", 2.0), ("09c-ai-installing", 2.0), ("09d-ai-ready", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 2.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0), ("16-onb-eq", 2.0), ("17-onb-genres", 2.0),
 ];
 
 /// Замеры: SILO_BENCH=preview|youtube — найти «кино группа крови» и включить превью (свой движок) или полный трек (официальный плеер), звук на нуле.
@@ -127,6 +127,8 @@ pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
                 app.prefs.volume = 0.0; app.set_volume_live(0.0);
                 if let Some(mut t) = app.demo_first_result() { t.kind = "preview".into(); app.play(vec![t], 0, false); }
             },
+            "16-onb-eq" => app.demo_onboarding(1),
+            "17-onb-genres" => app.demo_onboarding(2),
             "15-youtube" => if !d.started {
                 d.started = true;
                 app.stage = false; app.karaoke = false;
