@@ -6,34 +6,44 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
-#[cfg(feature = "embed-ytdlp")]
-static EMBEDDED: &[u8] = include_bytes!(env!("SILO_YTDLP_PATH"));
-
 /// Папка, куда распаковывается встроенный yt-dlp (рядом с кэшем приложения).
 fn bin_dir() -> PathBuf {
     std::env::var_os("SILO_LOCAL_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native")).join("bin")
 }
 
-/// Распаковать встроенный yt-dlp, если его нет или размер другой (один раз за запуск). Без функции embed-ytdlp ничего не делает.
-fn unpack_embedded() -> Option<PathBuf> {
-    #[cfg(feature = "embed-ytdlp")]
+/// Состояние скачивания yt-dlp: (идёт ли скачивание, сообщение, была ли попытка).
+static DL: Mutex<(bool, String, bool)> = Mutex::new((false, String::new(), false));
+pub fn download_state() -> (bool, String) { let g = DL.lock().unwrap(); (g.0, g.1.clone()) }
+pub fn download_attempted() -> bool { DL.lock().unwrap().2 }
+
+/// Скачать официальный yt-dlp.exe (github.com/yt-dlp/yt-dlp/releases) в папку данных приложения и сверить SHA-256 с официальным списком.
+/// Запускается один раз при первом обращении к режиму yt-dlp, если yt-dlp не найден. Ничего не запускает и не распаковывает скрытно.
+pub fn start_download(rt: &tokio::runtime::Handle) {
     {
-        static ONCE: OnceLock<Option<PathBuf>> = OnceLock::new();
-        return ONCE.get_or_init(|| {
-            let dir = bin_dir();
-            let p = dir.join("yt-dlp.exe");
-            let ok = std::fs::metadata(&p).map(|m| m.len() == EMBEDDED.len() as u64).unwrap_or(false);
-            if !ok {
-                std::fs::create_dir_all(&dir).ok()?;
-                let tmp = dir.join("yt-dlp.exe.part");
-                std::fs::write(&tmp, EMBEDDED).ok()?;
-                std::fs::rename(&tmp, &p).ok()?;
-            }
-            Some(p)
-        }).clone();
+        let mut g = DL.lock().unwrap();
+        if g.0 || g.2 { return; }
+        *g = (true, "Скачиваю yt-dlp…".into(), true);
     }
-    #[cfg(not(feature = "embed-ytdlp"))]
-    None
+    rt.spawn(async {
+        let r = async {
+            use sha2::{Digest, Sha256};
+            let base = "https://github.com/yt-dlp/yt-dlp/releases/latest/download";
+            let c = silo_core::http();
+            let sums = c.get(format!("{base}/SHA2-256SUMS")).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())?;
+            let want = sums.lines().find(|l| l.trim_end().ends_with(" yt-dlp.exe")).and_then(|l| l.split_whitespace().next()).map(|s| s.to_lowercase()).ok_or("нет суммы в списке")?;
+            let bytes = c.get(format!("{base}/yt-dlp.exe")).timeout(std::time::Duration::from_secs(600)).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+            let got = format!("{:x}", Sha256::digest(&bytes));
+            if got != want { return Err("контрольная сумма yt-dlp не совпала".to_string()); }
+            let dir = bin_dir();
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let tmp = dir.join("yt-dlp.exe.part");
+            std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+            std::fs::rename(&tmp, dir.join("yt-dlp.exe")).map_err(|e| e.to_string())?;
+            Ok::<(), String>(())
+        }.await;
+        let mut g = DL.lock().unwrap();
+        *g = match r { Ok(()) => (false, "готово".into(), true), Err(e) => (false, format!("не удалось скачать yt-dlp: {e}"), true) };
+    });
 }
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -58,7 +68,6 @@ pub fn find(custom: &str) -> Option<PathBuf> {
         for n in ["yt-dlp.exe", "yt-dlp/yt-dlp.exe"] { let p = d.join(n); if p.is_file() { return Some(p); } }
     }
     // скачанный или распакованный из exe yt-dlp в папке данных приложения
-    if let Some(p) = unpack_embedded() { return Some(p); }
     let own = bin_dir().join("yt-dlp.exe");
     if own.is_file() { return Some(own); }
     let path = std::env::var_os("PATH")?;
