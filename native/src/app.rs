@@ -368,6 +368,8 @@ impl SiloApp {
         if n >= 0 { self.pos = n; self.cur_key.clear(); return; }
         if self.prefs.autoplay || self.wave {
             let at = self.order.len() as isize;
+            // подгрузка без перехода могла уже идти: перезапускаем с переходом, иначе плеер замолкает
+            self.wave_busy = false;
             self.extend_wave(Some(at));
         }
     }
@@ -674,7 +676,8 @@ impl SiloApp {
                         let bot = m.contains("not a bot") || m.contains("Sign in to confirm");
                         let n = *self.yt_retry.get(&c.id).unwrap_or(&0);
                         diag(&format!("yt-dlp не отдал звук ({}, попытка {}): {m}", c.id, n + 1));
-                        if n < if bot { 3 } else { 2 } {
+                        if crate::ytdlp::is_permanent(&m) { crate::ytdlp::mark_dead(c.id.trim_start_matches("youtube:")); }
+                        if !crate::ytdlp::is_permanent(&m) && n < if bot { 3 } else { 2 } {
                             self.yt_retry.insert(c.id.clone(), n + 1);
                             self.yt_alt.insert(c.id.clone(), n + 1);
                             self.yt_retry_at = Some((c.id.clone(), now + if n == 0 { 0.3 } else { 1.5 * n as f64 }));
@@ -817,6 +820,12 @@ impl SiloApp {
                 if let Some(u) = r { for x in a.queue.iter_mut() { if x.id == id { x.audio = u.clone(); } } }
                 a.cur_key.clear();
             });
+            return;
+        }
+        if tr.source == "youtube" && crate::ytdlp::is_dead(tr.id.trim_start_matches("youtube:")) {
+            // YouTube это видео не отдаст (удалено, закрыто, недоступно в стране): тихо идём дальше
+            diag(&format!("пропуск недоступного видео {}", tr.id));
+            self.ended();
             return;
         }
         self.token += 1;
