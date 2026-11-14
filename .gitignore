@@ -19,5 +19,6 @@ v.err
 .claude/
 .vscode/
 .idea/
-Thumbs.dbtarget-native/
+Thumbs.db
+target-native/
 native/installer/bin/
