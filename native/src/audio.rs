@@ -114,6 +114,29 @@ struct Shared {
     bwe_reset: AtomicBool,
 }
 
+impl Shared {
+    fn new(tx: Sender<Event>) -> Shared {
+        Shared {
+            decks: Mutex::new([None, None]),
+            active: AtomicUsize::new(0),
+            playing: AtomicBool::new(false),
+            volume: AtomicU32::new(0.8f32.to_bits()),
+            out_rate: AtomicU32::new(48000),
+            crossfade: AtomicU32::new(0f32.to_bits()),
+            gapless: AtomicBool::new(true),
+            fade: Mutex::new(None),
+            fx: Mutex::new(Fx::default()),
+            fx_ver: AtomicU64::new(1),
+            analyser: Mutex::new(VecDeque::with_capacity(2048)),
+            events: tx,
+            repaint: Mutex::new(None),
+            device_lost: AtomicBool::new(false),
+            hq: AtomicBool::new(false),
+            bwe_reset: AtomicBool::new(false),
+        }
+    }
+}
+
 /// Публичный «пульт» движка.
 #[derive(Clone)]
 pub struct Engine {
@@ -132,24 +155,7 @@ pub struct PState {
 impl Engine {
     pub fn start(rt: tokio::runtime::Handle) -> (Engine, Receiver<Event>) {
         let (tx, rx) = std::sync::mpsc::channel();
-        let sh = Arc::new(Shared {
-            decks: Mutex::new([None, None]),
-            active: AtomicUsize::new(0),
-            playing: AtomicBool::new(false),
-            volume: AtomicU32::new(0.8f32.to_bits()),
-            out_rate: AtomicU32::new(48000),
-            crossfade: AtomicU32::new(0f32.to_bits()),
-            gapless: AtomicBool::new(true),
-            fade: Mutex::new(None),
-            fx: Mutex::new(Fx::default()),
-            fx_ver: AtomicU64::new(1),
-            analyser: Mutex::new(VecDeque::with_capacity(2048)),
-            events: tx,
-            repaint: Mutex::new(None),
-            device_lost: AtomicBool::new(false),
-            hq: AtomicBool::new(false),
-            bwe_reset: AtomicBool::new(false),
-        });
+        let sh = Arc::new(Shared::new(tx));
         let s2 = sh.clone();
         // поток-владелец устройства вывода: при отключении наушников пересоздаёт поток на новом устройстве
         std::thread::Builder::new().name("audio-out".into()).spawn(move || loop {
@@ -839,5 +845,50 @@ impl Wsola {
         // освобождаем прочитанное
         let drop_f = (self.read as usize).saturating_sub(tol * 2);
         if drop_f > 0 { self.inp.drain(..drop_f * 2); self.read -= drop_f as f64; }
+    }
+}
+
+#[cfg(test)]
+mod mixer_tests {
+    use super::*;
+    use crate::exciter::testutil::{band_db, pink_noise_cut};
+
+    /// Прогнать моно-сигнал через настоящий микшер (как в колбэке вывода) с заданным уровнем апскейла движка.
+    fn render_level(upscale: u8, x: &[f32], rate: u32) -> Vec<f32> {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let sh = Arc::new(Shared::new(tx));
+        sh.out_rate.store(rate, Relaxed);
+        f32_store(&sh.volume, 1.0);
+        sh.playing.store(true, Relaxed);
+        *sh.fx.lock().unwrap() = Fx { eq_on: false, eq: [0.0; 10], normalize: false, upscale };
+        sh.fx_ver.fetch_add(1, Relaxed);
+        let deck = Deck::new(1, x.len() as f64 / rate as f64, 1.0);
+        { let mut b = deck.buf.lock().unwrap(); for &s in x { b.push_back(s); b.push_back(s); } }
+        deck.eof.store(true, Relaxed);
+        sh.decks.lock().unwrap()[0] = Some(deck);
+        let mut mx = Mixer::new(sh.clone());
+        let frames = 512;
+        let mut out = vec![];
+        for _ in 0..x.len() / frames { mx.render(frames); out.extend(mx.out.chunks(2).map(|f| f[0])); }
+        out
+    }
+
+    /// Уровень «Нет» не трогает звук, «Слабый» достраивает срезанный верх и не меняет остальное (через настоящий микшер).
+    #[test]
+    fn upscale_levels_through_mixer() {
+        let rate = 44100u32;
+        let fs = rate as f64;
+        let x = pink_noise_cut(1 << 17, fs, 16000.0, 0.1, 5);
+        let off = render_level(0, &x, rate);
+        let weak = render_level(1, &x, rate);
+        // «Нет»: тот же звук (после разгона плавной громкости)
+        let err = (8192..off.len() - 1024).map(|i| (off[i] - x[i]).abs()).fold(0.0, f32::max);
+        assert!(err < 1e-3, "«Нет» изменил звук: {err}");
+        let hi = |v: &[f32]| band_db(v, fs, 16500.0, 20000.0);
+        let lo = |v: &[f32]| band_db(v, fs, 8000.0, 15000.0);
+        eprintln!("«Нет»: верх {:.1} дБ, низ {:.1} дБ; «Слабый»: верх {:.1} дБ, низ {:.1} дБ", hi(&off), lo(&off), hi(&weak), lo(&weak));
+        assert!(hi(&off) < -120.0, "в режиме «Нет» верх появился: {}", hi(&off));
+        assert!(hi(&weak) > hi(&off) + 100.0 && hi(&weak) > -110.0, "«Слабый» не достроил верх: {}", hi(&weak));
+        assert!((lo(&weak) - lo(&off)).abs() < 0.3, "«Слабый» изменил звук ниже среза: {:.2} дБ", lo(&weak) - lo(&off));
     }
 }

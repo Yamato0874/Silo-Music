@@ -188,6 +188,8 @@ pub struct SiloApp {
     cur_enhanced: bool,
     /// чем играет текущий трек (для проверок и журнала)
     pub last_src: String,
+    /// какой уровень апскейла сейчас применён в движке (0 нет, 1 достройка верха)
+    pub last_fx_up: u8,
     /// треки YouTube, которые yt-dlp не смог отдать: играют официальным плеером
     force_embed: HashSet<String>,
 }
@@ -211,7 +213,7 @@ impl SiloApp {
         let cache = crate::cache::Cache::new(&local.join("cache"));
         let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
-            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), force_embed: HashSet::new(),
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, force_embed: HashSet::new(),
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,
@@ -513,7 +515,8 @@ impl SiloApp {
         let mut eq = [0f32; 10];
         for (i, v) in p.eq.iter().take(10).enumerate() { eq[i] = *v; }
         // «Средний»: если трек уже улучшен нейросетью, лёгкий эксайтер не нужен; пока не готов, играет «Слабый» вариант
-        let up = if p.upscale == 2 { if self.cur_enhanced { 0 } else { 1 } } else { p.upscale };
+        let up = match p.upscale { 0 => 0, 2 => if self.cur_enhanced { 0 } else { 1 }, _ => 1 };
+        self.last_fx_up = up;
         self.eng.set_fx(Fx { eq_on: p.eq_on, eq, normalize: p.normalize, upscale: up });
         self.eng.set_crossfade(p.crossfade, p.gapless);
         self.eng.set_speed(if p.rate > 0.0 { p.rate } else { 1.0 });

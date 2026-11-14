@@ -62,7 +62,7 @@ fn selftest_enhance(app: &mut SiloApp, ctx: &egui::Context) {
     let t = ctx.input(|i| i.time);
     let st = app.bench_step;
     let files = |d: &std::path::Path| -> String { let mut v: Vec<String> = std::fs::read_dir(d).map(|rd| rd.flatten().map(|e| format!("{}({}K)", e.file_name().to_string_lossy().chars().take(8).collect::<String>(), e.metadata().map(|m| m.len() / 1024).unwrap_or(0))).collect()).unwrap_or_default(); v.sort(); v.join(" ") };
-    let log = |app: &SiloApp, what: &str| eprintln!("[enh t={:.1}] {what}: route={} playing={} pos={:.1} src={} | cache[{}] enh[{}] queue={:?} state={:?}", ctx.input(|i| i.time), app.route_name(), app.ps.playing, app.ps.pos, app.last_src, files(&app.cache.dir), files(&app.cache.enh_dir), app.enh.queue_info(), app.enh.state());
+    let log = |app: &SiloApp, what: &str| eprintln!("[enh t={:.1}] {what}: route={} playing={} pos={:.1} src={} | cache[{}] enh[{}] queue={:?} state={:?}", ctx.input(|i| i.time), app.route_name(), app.ps.playing, app.ps.pos, format!("{} fx={}", app.last_src, app.last_fx_up), files(&app.cache.dir), files(&app.cache.enh_dir), app.enh.queue_info(), app.enh.state());
     match st {
         0 if t > 1.0 => {
             app.prefs.onboarded = true;

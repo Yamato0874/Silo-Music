@@ -161,3 +161,50 @@ pub fn m3u(list: &[Track]) -> String {
     }
     s
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parses_text_lines_and_urls() {
+        let (w, u) = parse("paste.txt", "Кино - Группа крови\nLinkin Park – Numb\nhttps://www.youtube.com/playlist?list=PL123\nПросто название");
+        assert_eq!(w.len(), 3);
+        assert_eq!((w[0].artist.as_str(), w[0].title.as_str()), ("Кино", "Группа крови"));
+        assert_eq!((w[1].artist.as_str(), w[1].title.as_str()), ("Linkin Park", "Numb"));
+        assert_eq!((w[2].artist.as_str(), w[2].title.as_str()), ("", "Просто название"));
+        assert_eq!(u, vec!["https://www.youtube.com/playlist?list=PL123".to_string()]);
+    }
+    #[test]
+    fn parses_m3u_pls_csv_json() {
+        let (w, _) = parse("a.m3u8", "#EXTM3U\n#EXTINF:180,Земфира - Искала\nC:\\Music\\01 - x.mp3\n#EXTINF:200,Ария - Беспечный ангел\nhttps://youtu.be/abc\n");
+        assert_eq!(w.len(), 2);
+        assert_eq!((w[0].artist.as_str(), w[0].title.as_str()), ("Земфира", "Искала"));
+        let (w, _) = parse("a.pls", "[playlist]\nFile1=x\nTitle1=Metallica - One\nTitle2=Pink Floyd - Time\n");
+        assert_eq!(w.len(), 2);
+        let (w, _) = parse("a.csv", "Track Name,Artist Name,Album\n\"Numb\",\"Linkin Park\",Meteora\nHero;x,Skillet,Awake\n");
+        assert_eq!((w[0].artist.as_str(), w[0].title.as_str()), ("Linkin Park", "Numb"));
+        assert_eq!(w.len(), 2);
+        let (w, _) = parse("a.json", r#"{"items":[{"track":{"name":"Believer","artists":[{"name":"Imagine Dragons"}]}},{"title":"Numb","artist":"Linkin Park"}]}"#);
+        assert_eq!(w.len(), 2);
+        assert_eq!((w[0].artist.as_str(), w[0].title.as_str()), ("Imagine Dragons", "Believer"));
+    }
+    #[test]
+    fn score_prefers_the_right_track() {
+        let w = Wanted { artist: "Linkin Park".into(), title: "Numb".into(), raw: "Linkin Park - Numb".into() };
+        let mut good = silo_core::model::Track::stub("youtube:a", vec![]);
+        good.name = "Numb (Official Video)".into(); good.artist = "Linkin Park".into();
+        let mut bad = silo_core::model::Track::stub("youtube:b", vec![]);
+        bad.name = "Top 10 songs".into(); bad.artist = "Charts".into();
+        assert!(score(&w, &good) > 0.6 && score(&w, &bad) < 0.3, "{} {}", score(&w, &good), score(&w, &bad));
+    }
+    #[test]
+    fn m3u_export_roundtrip() {
+        let mut t = silo_core::model::Track::stub("youtube:a", vec![]);
+        t.name = "Numb".into(); t.artist = "Linkin Park".into(); t.duration = 185; t.url = "https://www.youtube.com/watch?v=a".into();
+        let m = m3u(&[t]);
+        let (w, urls) = parse("x.m3u8", &m);
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].title, "Numb");
+        assert!(urls.is_empty() || urls[0].contains("watch?v=a"));
+    }
+}
