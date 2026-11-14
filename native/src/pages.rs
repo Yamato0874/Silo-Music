@@ -361,11 +361,9 @@ impl SiloApp {
         let w = ui.available_width();
         let (r, _) = ui.allocate_exact_size(Vec2::new(w, 132.0), Sense::hover());
         // мягкий градиент от акцента
-        let mut m = egui::Mesh::default();
         let (a, b) = (mix(pal.panel, pal.acc, if self.wave { 0.32 } else { 0.18 }), pal.panel);
-        m.colored_vertex(r.left_top(), a); m.colored_vertex(r.right_top(), b); m.colored_vertex(r.right_bottom(), b); m.colored_vertex(r.left_bottom(), a);
-        m.add_triangle(0, 1, 2); m.add_triangle(0, 2, 3);
-        ui.painter().add(egui::Shape::Mesh(m.into()));
+        // градиент внутри скруглённого прямоугольника: раньше квадратная заливка выступала за скруглённые углы
+        paint_rounded_gradient(ui.painter(), r, 16.0, a, b);
         ui.painter().rect_stroke(r, CornerRadius::same(16), Stroke::new(1.0, pal.line), egui::StrokeKind::Inside);
         let pc = Pos2::new(r.left() + 66.0, r.center().y);
         let pr = Rect::from_center_size(pc, Vec2::splat(76.0));
@@ -1987,4 +1985,25 @@ fn eq_curve(ui: &mut Ui, pal: &crate::theme::Pal, eq: &[f32]) {
     }).collect();
     p.add(egui::Shape::line(pts, Stroke::new(2.0, pal.acc)));
     if pre < -0.05 { p.text(rect.right_top() + Vec2::new(-8.0, 6.0), egui::Align2::RIGHT_TOP, format!("предусиление {pre:.1} дБ"), egui::FontId::proportional(11.0), pal.mut_); }
+}
+
+/// Горизонтальный градиент a → b внутри скруглённого прямоугольника (без выступающих углов).
+fn paint_rounded_gradient(p: &egui::Painter, r: Rect, radius: f32, a: Color32, b: Color32) {
+    let rad = radius.min(r.height() / 2.0).min(r.width() / 2.0);
+    let col = |x: f32| { let t = ((x - r.left()) / r.width()).clamp(0.0, 1.0); mix(a, b, t) };
+    let mut pts: Vec<Pos2> = vec![];
+    let corners = [(r.right() - rad, r.top() + rad, -90.0f32), (r.right() - rad, r.bottom() - rad, 0.0), (r.left() + rad, r.bottom() - rad, 90.0), (r.left() + rad, r.top() + rad, 180.0)];
+    for (cx, cy, start) in corners {
+        for k in 0..=10 {
+            let ang = (start + 90.0 * k as f32 / 10.0).to_radians();
+            pts.push(Pos2::new(cx + rad * ang.cos(), cy + rad * ang.sin()));
+        }
+    }
+    let mut m = egui::Mesh::default();
+    let c = r.center();
+    m.colored_vertex(c, col(c.x));
+    for q in &pts { m.colored_vertex(*q, col(q.x)); }
+    let n = pts.len() as u32;
+    for i in 0..n { m.add_triangle(0, 1 + i, 1 + (i + 1) % n); }
+    p.add(egui::Shape::Mesh(m.into()));
 }
