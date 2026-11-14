@@ -1,8 +1,8 @@
 # Silo Player
 
-Локальный музыкальный плеер для Windows на Rust. Интерфейс на [egui](https://github.com/emilk/egui), собственный звуковой движок (symphonia и cpal), без веб-движка. Интерфейс на русском и английском, 7 тем. Текущая версия: **1.1.0**.
+Локальный музыкальный плеер для Windows на Rust. Интерфейс на [egui](https://github.com/emilk/egui), собственный звуковой движок (symphonia и cpal), без веб-движка. Интерфейс на русском и английском, 7 тем. Текущая версия: **1.2.0**.
 
-Проект открытый, лицензия [MIT](LICENSE). Сторонние лицензии: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) и [native/THIRD_PARTY_NATIVE.md](native/THIRD_PARTY_NATIVE.md). Заметки о версиях: [native/RELEASE_NOTES_1.1.md](native/RELEASE_NOTES_1.1.md) и страница [Releases](https://github.com/Yamato0874/Silo-Music/releases). Каждая новая версия публикуется там с описанием изменений.
+Проект открытый, лицензия [MIT](LICENSE). Сторонние лицензии: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) и [native/THIRD_PARTY_NATIVE.md](native/THIRD_PARTY_NATIVE.md). Заметки о версиях: [native/RELEASE_NOTES_1.2.md](native/RELEASE_NOTES_1.2.md) и страница [Releases](https://github.com/Yamato0874/Silo-Music/releases). Каждая новая версия публикуется там с описанием изменений.
 
 ## Возможности
 - **Режим «Библиотека yt-dlp»** (по умолчанию): поиск, «Эхо», подборки, страница артиста, звук и клип YouTube через yt-dlp без ключа API; запасной путь через бесплатные зеркала и официальный плеер. Режим «Чистый YouTube» с официальным плеером остаётся в Настройках.
@@ -15,14 +15,17 @@
 - Своя шапка окна, трей, глобальные клавиши, плашка Windows.
 
 ## Установка
-Скачайте установщик `Silo-Player-Native_*_x64-setup.exe` со страницы [Releases](https://github.com/Yamato0874/Silo-Music/releases) и сверьте контрольную сумму из `SHA256SUMS.txt`. Программа ставится в папку пользователя и не требует прав администратора. yt-dlp в установщик не входит: положите `yt-dlp.exe` рядом с программой или укажите путь в Настройках.
+Со страницы [Releases](https://github.com/Yamato0874/Silo-Music/releases) скачайте либо установщик `Silo-Player_*_x64-setup.exe`, либо один портативный `Silo-Player.exe` (ставить не нужно). Контрольные суммы в `SHA256SUMS.txt`. yt-dlp уже внутри обоих файлов и сам распаковывается при первом запуске: ничего искать и настраивать не надо.
 
 ## Сборка
 Нужны Rust и Visual Studio Build Tools (C++). WebView2 нужен только для официальных плееров YouTube и SoundCloud.
 ```bash
 RUSTFLAGS="-C target-feature=+crt-static" cargo build -p silo-native --release --target-dir target-native
 cargo test -p silo-native -p silo-core
-# установщик (NSIS): положите yt-dlp.exe в native/installer/bin, если вы вправе его распространять
+# официальный yt-dlp с проверкой контрольной суммы (нужен для установщика и exe «всё в одном»)
+powershell -File tools/fetch-ytdlp.ps1
+# exe «всё в одном»: yt-dlp зашивается внутрь
+# $env:SILO_YTDLP_PATH = "<путь из вывода fetch-ytdlp>"; cargo build --release -p silo-native --features embed-ytdlp
 cd native/installer && makensis silo-native.nsi
 ```
 Служебные переменные для самопроверок (в обычной работе не нужны): `SILO_DATA_DIR`, `SILO_LOCAL_DIR` (отдельные папки данных), `SILO_DEMO` (снимки экранов), `SILO_SELFTEST` (проверка воспроизведения с поддельным yt-dlp).
@@ -31,7 +34,7 @@ cd native/installer && makensis silo-native.nsi
 База (`silo.db`: вкусы, история, оценки, плейлисты, настройки) лежит в `%APPDATA%\app.silo.player.native` вне папки установки и переживает обновление. Версия схемы хранится в `PRAGMA user_version`; перед миграцией и раз в сутки делается копия в `backups/` (остаются 10 свежих). Кэш звука лежит в `%LOCALAPPDATA%\app.silo.player.native` и ограничен по размеру.
 
 ## Предупреждение о режиме yt-dlp
-Он получает звук и видео не через официальный плеер YouTube, что нарушает условия использования YouTube (а правила YouTube API Services запрещают отделять звук от видео). yt-dlp не входит в установщик: пользователь сам ставит его и сам отвечает за соблюдение условий сервисов.
+Он получает звук и видео не через официальный плеер YouTube, что нарушает условия использования YouTube (а правила YouTube API Services запрещают отделять звук от видео). yt-dlp (лицензия Unlicense) входит в состав сборок; пользователь сам отвечает за соблюдение условий сервисов.
 
 ## Конфиденциальность
 Нет телеметрии и аккаунтов. Запросы идут напрямую с вашего компьютера в YouTube (через yt-dlp или официальный плеер), LRCLIB (тексты), MusicBrainz (подсказки исполнителей) и зеркала Piped/Invidious при сбое поиска. Встроенные плееры YouTube и SoundCloud работают по правилам этих сервисов и могут собирать свои данные. Названия и товарные знаки принадлежат их владельцам; проект не связан с Google, YouTube и SoundCloud.

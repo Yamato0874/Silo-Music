@@ -1414,6 +1414,12 @@ impl SiloApp {
                 if self.ytdlp_exe().is_some() && btn(ui, &pal, V::Solid, Some("refresh"), crate::i18n::tr("ytDlpUpdate", en), false).clicked() { self.update_ytdlp(); }
                 ui.add_space(6.0);
                 sw(ui, &pal, &mut self.prefs.ytdlp_video, crate::i18n::tr("ytDlpVideo", en), "");
+                set_row(ui, &pal, if en { "Browser cookies for yt-dlp" } else { "Cookies браузера для yt-dlp" }, if en { "Turn on only if YouTube answers \"Sign in to confirm you are not a bot\": yt-dlp then reads YouTube cookies of the chosen browser on this computer." } else { "Включайте, только если YouTube отвечает «Подтвердите, что вы не бот»: yt-dlp тогда читает cookies YouTube выбранного браузера на этом компьютере." }, |ui| {
+                    let cur = self.prefs.ytdlp_cookies.clone();
+                    egui::ComboBox::from_id_salt("ytck").selected_text(if cur.is_empty() { if en { "Off" } else { "Выключено" } } else { cur.as_str() }).show_ui(ui, |ui| {
+                        for (v, l) in [("", if en { "Off" } else { "Выключено" }), ("edge", "edge"), ("firefox", "firefox"), ("chrome", "chrome"), ("brave", "brave")] { ui.selectable_value(&mut self.prefs.ytdlp_cookies, v.to_string(), l); }
+                    });
+                });
             });
         }
     }
@@ -1691,7 +1697,8 @@ impl SiloApp {
     pub fn onboarding(&mut self, ui: &mut Ui) {
         let pal = self.pal;
         let redo = self.pages.onb_redo;
-        if self.pages.onb_keys.is_none() { let has_key = !be::get_setting(&self.be, "youtube_api_key".into()).unwrap_or_default().trim().is_empty(); self.pages.onb_keys = Some(!redo && !has_key); if redo { self.pages.onb_step = 1; } }
+        // ключи сервисов вводятся только в Настройках, на первом запуске их не спрашиваем
+        if self.pages.onb_keys.is_none() { self.pages.onb_keys = Some(false); if redo { self.pages.onb_step = 1; } }
         let en = self.en();
         let area = ui.available_rect_before_wrap();
         let w = 760.0f32.min(area.width() - 40.0);
