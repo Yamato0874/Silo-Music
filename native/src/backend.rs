@@ -766,7 +766,10 @@ pub async fn echo_mix(
         // YouTube и SoundCloud: не больше двух жанров за подборку (экономия квоты YouTube)
         let pos = tags.iter().position(|x| x == tag);
         let ext = pos.map_or(false, |i| i < 2);
-        let text = format!("{} music", qt.first().cloned().unwrap_or_else(|| tag.clone()));
+        // разнообразие: примерно в половине запросов к жанру добавляется язык или регион (чтобы волна не крутила одно и то же)
+        const FLAVOR: [&str; 14] = ["russian", "english", "spanish", "french", "german", "japanese", "korean", "italian", "portuguese", "turkish", "arabic", "hindi", "polish", "swedish"];
+        let flavor = if explore && rng.f() < 0.6 || rng.f() < 0.35 { FLAVOR[rng.below(FLAVOR.len())] } else { "" };
+        let text = format!("{} {} music", qt.first().cloned().unwrap_or_else(|| tag.clone()), flavor).replace("  ", " ");
         // YouTube дорогой (100 ед. за поиск): только один жанр за подборку, результаты кэшируются на 3 суток;
         // при исчерпанной квоте тихо пропускаем (сообщение один раз)
         // источники опрашиваются параллельно: подборка собирается быстрее
@@ -891,6 +894,21 @@ pub fn list_downloads(s: &App) -> R<Vec<(Track, String)>> {
     db(&s).list_downloads().map_err(e)
 }
 /// Скачивание только если лицензия трека это разрешает (audiodownload_allowed).
+/// Скачать звук YouTube-трека через yt-dlp (m4a) в папку загрузок и записать в «Загрузки».
+pub async fn download_youtube(s: &App, exe: String, track: Track) -> R<String> {
+    let vid = track.id.trim_start_matches("youtube:").to_string();
+    let safe = |x: &str| x.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c }).collect::<String>();
+    let dir = download_dir(&s)?;
+    std::fs::create_dir_all(&dir).map_err(e)?;
+    let path = dir.join(format!("{} - {}.m4a", safe(&track.artist), safe(&track.name)));
+    let p2 = path.clone();
+    tokio::task::spawn_blocking(move || crate::ytdlp::audio_file(&exe, &vid, &p2)).await.map_err(e)?.map_err(|x| x)?;
+    let p = path.to_string_lossy().to_string();
+    let local = Track { id: format!("local:{}", track.id), source: "local".into(), audio: p.clone(), ..track };
+    db(&s).save_download(&local, &p).map_err(e)?;
+    Ok(p)
+}
+
 pub async fn download_track(s: &App, track: Track) -> R<String> {
     if !["jamendo", "ccmixter", "archive"].contains(&track.source.as_str()) {
         return Err("Скачивать можно только треки Jamendo, ccMixter и Internet Archive с открытой лицензией".into());

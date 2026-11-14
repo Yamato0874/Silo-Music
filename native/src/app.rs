@@ -504,7 +504,12 @@ impl SiloApp {
                 self.toast(format!("{}: {}", self.t("downloading"), t.name), ToastKind::Info);
                 let b = self.be.clone();
                 let name = t.name.clone();
-                self.spawn(async move { be::download_track(&b, t).await }, move |a, r| match r { Ok(_) => a.toast(format!("{}: {name}", a.t("downloaded")), ToastKind::Ok), Err(e) => a.err(e) });
+                // YouTube-треки скачиваются через библиотеку yt-dlp, остальные (Jamendo и т. п.) обычным способом
+                let exe = if t.source == "youtube" { self.ytdlp_exe() } else { None };
+                self.spawn(async move { match exe { Some(exe) => be::download_youtube(&b, exe, t).await, None => be::download_track(&b, t).await } }, move |a, r| match r {
+                    Ok(_) => { a.toast(format!("{}: {name}", a.t("downloaded")), ToastKind::Ok); a.pages_reset_downloads(); }
+                    Err(e) => { diag(&e); a.toast(format!("Не удалось скачать: {name}"), ToastKind::Error); }
+                });
             }
             Act::AddToPl(id, name, t) => {
                 let b = self.be.clone();
@@ -844,7 +849,7 @@ impl SiloApp {
         self.plat.set_metadata(&c);
         let minimized = self.ctx.input(|i| i.viewport().minimized.unwrap_or(false) || !i.viewport().focused.unwrap_or(true));
         let _ = minimized; // уведомлений о треках нет (по просьбе)
-        if self.prefs.eq_auto && self.prefs.eq_on {
+        if false && self.prefs.eq_auto {
             for tg in &c.tags { if let Some(n) = crate::taste::search(tg, 1).first() { if let Some(eq) = crate::taste::eq_of(&n.id) { self.prefs.eq = eq.iter().map(|x| *x as f32).collect(); break; } } }
         }
         if self.show_l || self.karaoke { self.load_lyrics(); }

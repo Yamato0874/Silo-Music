@@ -110,6 +110,8 @@ pub struct Pages {
     onb_keys: Option<bool>,
     onb_tip: usize,
     onb_tastes: Vec<String>,
+    onb_eq: [f32; 10],
+    onb_hp: String,
     onb_artists: Vec<SeedArtist>,
 }
 
@@ -130,6 +132,8 @@ fn greeting(en: bool) -> &'static str {
 fn day_key(off_days: i64) -> String { let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64 / 86400).unwrap_or(0); (d - off_days).to_string() }
 
 impl SiloApp {
+    /// После скачивания трека список «Загрузки» и сведения о папке перечитываются.
+    pub fn pages_reset_downloads(&mut self) { self.pages.dl_dir = None; self.pages.lists.remove("downloads"); }
     pub fn demo_query(&mut self, q: &str) { self.pages.q = q.into(); self.search_go(None, false); }
     pub fn demo_set_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); }
     pub fn open_settings_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); self.tab = Tab::Settings; }
@@ -1195,7 +1199,7 @@ impl SiloApp {
             "taste" => {
                 h3(ui, &pal, self.t("tastesTitle"));
                 let mut tastes = self.prefs.tastes.clone();
-                if self.taste_picker(ui, &mut tastes) { self.prefs.eq = taste::eq_for(&tastes); self.prefs.eq_on = !tastes.is_empty(); self.prefs.tastes = tastes; }
+                if self.taste_picker(ui, &mut tastes) { self.prefs.tastes = tastes; }
                 ui.label(RichText::new(self.t("tastesNote")).color(pal.mut_).size(12.5));
                 h3(ui, &pal, self.t("artistsTitle"));
                 let mut arts = self.prefs.artists.clone();
@@ -1441,6 +1445,10 @@ impl SiloApp {
                 let mut d = self.pages.dl_dir.clone().unwrap_or_default();
                 field(ui, &pal, &mut d, crate::i18n::tr("dlDir", en), Some("folder"), (ui.available_width() - 200.0).max(200.0), "dl-dir");
                 if btn(ui, &pal, V::Solid, None, "…", false).clicked() { if let Some(p) = rfd::FileDialog::new().pick_folder() { d = p.display().to_string(); } }
+                if btn(ui, &pal, V::Solid, Some("folder"), if en { "Open folder" } else { "Открыть папку" }, false).clicked() {
+                    let dir = if d.trim().is_empty() { be::download_dir(&self.be).ok() } else { Some(std::path::PathBuf::from(&d)) };
+                    if let Some(dir) = dir { let _ = std::fs::create_dir_all(&dir); let _ = std::process::Command::new("explorer").arg(dir).spawn(); }
+                }
                 if btn(ui, &pal, V::Solid, None, crate::i18n::tr("save", en), false).clicked() {
                     let _ = be::set_setting(&self.be, "download_dir".into(), d.clone());
                     self.pages.dl_info = be::downloads_info(&self.be).unwrap_or_default();
@@ -1696,7 +1704,7 @@ impl SiloApp {
         let pal = self.pal;
         let redo = self.pages.onb_redo;
         // ключи сервисов вводятся только в Настройках, на первом запуске их не спрашиваем
-        if self.pages.onb_keys.is_none() { self.pages.onb_keys = Some(false); if redo { self.pages.onb_step = 1; } }
+        if self.pages.onb_keys.is_none() { self.pages.onb_keys = Some(false); if redo { self.pages.onb_step = 2; } }
         let en = self.en();
         let area = ui.available_rect_before_wrap();
         let w = 760.0f32.min(area.width() - 40.0);
@@ -1736,6 +1744,34 @@ impl SiloApp {
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| { if btn(ui, &pal, V::Primary, None, crate::i18n::tr("continue", en), false).clicked() { self.pages.onb_step = 1; } });
                         }
                         1 => {
+                            ui.label(RichText::new(if en { "Set up your headphones" } else { "Настройте звук под ваши наушники" }).font(bold(24.0)));
+                            ui.label(RichText::new(if en { "Enter your headphone model (for your own reference) and set the 10-band equalizer by hand. Flat by default; you can change it later in Settings → Sound." } else { "Впишите модель наушников (для памяти) и выставьте 10-полосный эквалайзер вручную. По умолчанию звук ровный, потом всё меняется в Настройках → Звук." }).color(pal.mut_));
+                            ui.add_space(8.0);
+                            field(ui, &pal, &mut self.pages.onb_hp, if en { "Headphones, e.g. Sennheiser HD 560S" } else { "Наушники, например Sennheiser HD 560S" }, Some("headphones"), 380.0, "onb-hp");
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                for (i, f) in crate::audio::EQ_FREQS.iter().enumerate() {
+                                    ui.vertical(|ui| {
+                                        ui.set_width(56.0);
+                                        ui.add(egui::Slider::new(&mut self.pages.onb_eq[i], -12.0..=12.0).vertical().show_value(false).step_by(0.5));
+                                        ui.label(RichText::new(if *f >= 1000.0 { format!("{}к", f / 1000.0) } else { format!("{f}") }).size(11.5).color(pal.mut_));
+                                        ui.label(RichText::new(format!("{:+.1}", self.pages.onb_eq[i])).size(11.0).color(pal.mut_));
+                                    });
+                                }
+                            });
+                            ui.add_space(4.0);
+                            eq_curve(ui, &pal, &self.pages.onb_eq);
+                            ui.add_space(12.0);
+                            ui.horizontal(|ui| {
+                                if btn(ui, &pal, V::Ghost, None, crate::i18n::tr("skip", en), false).clicked() { self.pages.onb_eq = [0.0; 10]; self.pages.onb_step = 2; }
+                                if btn(ui, &pal, V::Ghost, None, if en { "Reset" } else { "Сбросить" }, false).clicked() { self.pages.onb_eq = [0.0; 10]; }
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if btn(ui, &pal, V::Primary, None, crate::i18n::tr("onbNext", en), false).clicked() { self.pages.onb_step = 2; }
+                                    if icon_btn(ui, &pal, "back", 32.0, false, crate::i18n::tr("back", en)).clicked() { self.pages.onb_step = 0; }
+                                });
+                            });
+                        }
+                        2 => {
                             ui.label(RichText::new(crate::i18n::tr("tastesQ", en)).font(bold(24.0)));
                             ui.label(RichText::new(crate::i18n::tr("tastesHint", en)).color(pal.mut_));
                             ui.add_space(8.0);
@@ -1743,14 +1779,14 @@ impl SiloApp {
                             if self.taste_picker(ui, &mut v) { self.pages.onb_tastes = v; }
                             ui.add_space(12.0);
                             ui.horizontal(|ui| {
-                                if btn(ui, &pal, V::Ghost, None, crate::i18n::tr("skip", en), false).clicked() { self.pages.onb_tastes.clear(); self.pages.onb_step = 2; }
+                                if btn(ui, &pal, V::Ghost, None, crate::i18n::tr("skip", en), false).clicked() { self.pages.onb_tastes.clear(); self.pages.onb_step = 3; }
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if btn_off(ui, &pal, V::Primary, None, crate::i18n::tr("onbNext", en), !self.pages.onb_tastes.is_empty()).clicked() { self.pages.onb_step = 2; }
-                                    if icon_btn(ui, &pal, "back", 32.0, false, crate::i18n::tr("back", en)).clicked() { self.pages.onb_step = 0; }
+                                    if btn_off(ui, &pal, V::Primary, None, crate::i18n::tr("onbNext", en), !self.pages.onb_tastes.is_empty()).clicked() { self.pages.onb_step = 3; }
+                                    if icon_btn(ui, &pal, "back", 32.0, false, crate::i18n::tr("back", en)).clicked() { self.pages.onb_step = 1; }
                                 });
                             });
                         }
-                        2 => {
+                        3 => {
                             ui.label(RichText::new(crate::i18n::tr("artistsQ", en)).font(bold(24.0)));
                             ui.label(RichText::new(crate::i18n::tr("artistsHint", en)).color(pal.mut_));
                             ui.add_space(8.0);
@@ -1762,10 +1798,10 @@ impl SiloApp {
                                 if btn(ui, &pal, V::Ghost, None, crate::i18n::tr("skip", en), false).clicked() { next = Some(false); }
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if btn_off(ui, &pal, V::Primary, None, crate::i18n::tr(if redo { "done" } else { "onbNext" }, en), !self.pages.onb_artists.is_empty()).clicked() { next = Some(true); }
-                                    if icon_btn(ui, &pal, "back", 32.0, false, crate::i18n::tr("back", en)).clicked() { self.pages.onb_step = 1; }
+                                    if icon_btn(ui, &pal, "back", 32.0, false, crate::i18n::tr("back", en)).clicked() { self.pages.onb_step = 2; }
                                 });
                             });
-                            if let Some(keep) = next { if !keep { self.pages.onb_artists.clear(); } if redo { self.onb_finish(); } else { self.pages.onb_step = 3; } }
+                            if let Some(keep) = next { if !keep { self.pages.onb_artists.clear(); } self.onb_finish(); }
                         }
                         _ => {
                             let tips = [("tip1t", "tip1"), ("tip2t", "tip2"), ("tip3t", "tip3"), ("tip4t", "tip4")];
@@ -1789,8 +1825,9 @@ impl SiloApp {
     }
     fn onb_finish(&mut self) {
         let ts = self.pages.onb_tastes.clone();
-        self.prefs.eq = taste::eq_for(&ts);
-        self.prefs.eq_on = !ts.is_empty();
+        // эквалайзер только тот, что человек выставил сам под свои наушники (по умолчанию плоский)
+        let eq = self.pages.onb_eq;
+        if eq.iter().any(|g| g.abs() > 0.01) { self.prefs.eq = eq.to_vec(); self.prefs.eq_on = true; }
         self.prefs.tastes = ts;
         self.prefs.artists = self.pages.onb_artists.clone();
         self.prefs.onboarded = true;
@@ -1828,6 +1865,7 @@ fn track_menu(ui: &mut Ui, pal: &crate::theme::Pal, en: bool, t: &Track, r: i32,
     if !t.artist.is_empty() && mi(ui, "user", tr("artistPage"), true) { out = Some(Act::Artist(t.artist.clone())); }
     if mi(ui, "info", tr("about"), true) { out = Some(Act::Info(t.clone())); }
     if mi(ui, "copy", tr("copyName"), true) { out = Some(Act::Copy(if t.artist.is_empty() { t.name.clone() } else { format!("{} - {}", t.artist, t.name) }, tr("copiedName").into())); }
+    if t.source == "youtube" && mi(ui, "download", "Скачать трек (yt-dlp)", true) { out = Some(Act::Download(t.clone())); }
     if ["jamendo", "ccmixter", "archive"].contains(&t.source.as_str()) && mi(ui, "download", tr(if t.download_allowed { "download" } else { "noDownload" }), t.download_allowed) { out = Some(Act::Download(t.clone())); }
     if let Some(id) = pl { ui.separator(); if mi(ui, "trash", tr("removeFromPlaylist"), true) { out = Some(Act::RemoveFromPl(id, t.clone())); } }
     if !pls.is_empty() {
