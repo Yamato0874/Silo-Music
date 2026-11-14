@@ -119,9 +119,58 @@ fn node_path() -> Option<String> {
     p.or_else(|| ["C:\\Program Files\\nodejs\\node.exe"].iter().map(PathBuf::from).find(|p| p.is_file())).map(|p| p.to_string_lossy().to_string())
 }
 
+/// Клиенты YouTube по попыткам. Обычный веб-клиент первым попадает под «подтвердите, что вы не бот» и 429,
+/// а встроенный клиент (web_embedded) в том же состоянии отдаёт звук без cookies (проверено 14.11.2026 при 429: 5 из 5, tv и web_safari 0 из 5). Видео с запретом встраивания берёт вторая попытка обычным клиентом.
+/// Третья попытка — мобильный клиент с PO-токеном (плагин bgutil, нужен Node.js), если он установлен рядом с программой.
+const CLIENTS: [&str; 3] = ["youtube:player_client=web_embedded", "youtube:player_client=mweb", "youtube:player_client=default"];
+
+/// Папка генератора PO-токенов (bgutil-ytdlp-pot-provider/server), её кладёт установщик рядом с программой.
+fn pot_home() -> Option<PathBuf> {
+    let d = std::env::current_exe().ok()?.parent()?.join("pot").join("server");
+    d.join("build").join("generate_once.js").is_file().then_some(d)
+}
+
+/// Команда yt-dlp для получения звука и видео: общие параметры и клиенты YouTube для этой попытки (0, 1, 2).
+/// PO-токены выдаёт локальный сервер bgutil (127.0.0.1:4416), плагин yt-dlp находит его сам.
+fn media(exe: &str, attempt: usize) -> Command {
+    let mut c = base(exe);
+    c.args(["--extractor-args", CLIENTS[attempt.min(2)]]);
+    c
+}
+
+static POT: Mutex<Option<Child>> = Mutex::new(None);
+/// Запустить генератор PO-токенов (Node.js, сервер bgutil) в фоне, если он установлен и есть Node. Токен живёт часами,
+/// поэтому сервер держим всё время работы программы: так yt-dlp получает токен мгновенно (в режиме скрипта — 14 с на трек).
+pub fn start_pot() {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    if ONCE.set(()).is_err() { return; }
+    let (Some(node), Some(home)) = (node_path(), pot_home()) else { return };
+    let mut c = Command::new(node);
+    c.creation_flags(CREATE_NO_WINDOW).current_dir(&home).arg(home.join("build").join("main.js")).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    match c.spawn() {
+        Ok(ch) => { kill_with_us(&ch); crate::app::diag("генератор PO-токенов запущен"); *POT.lock().unwrap() = Some(ch); }
+        Err(e) => crate::app::diag(&format!("генератор PO-токенов не запустился: {e}")),
+    }
+}
+/// Привязать процесс к заданию Windows «закрыть вместе с нами»: при любом выходе Silo (даже при вылете) сервер Node тоже закрывается,
+/// и установщик может перезаписать его файлы.
+fn kill_with_us(ch: &Child) {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::*;
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() { return; }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &info as *const _ as *const core::ffi::c_void, std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32);
+        AssignProcessToJobObject(job, ch.as_raw_handle() as _);
+        // дескриптор задания не закрываем: он живёт, пока жива программа
+    }
+}
+/// Остановить генератор при выходе из программы.
+pub fn stop_pot() { if let Some(mut c) = POT.lock().unwrap_or_else(|e| e.into_inner()).take() { kill_tree(c.id()); let _ = c.wait(); } }
+
 /// Команда yt-dlp с общими параметрами: тайм-ауты, повторы, среда выполнения JS, если она есть.
-/// Клиенты YouTube для повтора после бот-проверки (у разных клиентов разные проверки).
-const ALT_CLIENTS: &str = "youtube:player_client=default,tv";
 
 fn base(exe: &str) -> Command {
     let mut c = cmd(exe);
@@ -169,11 +218,10 @@ pub fn auto_update(rt: &tokio::runtime::Handle, exe: String) {
 
 /// Процесс, который пишет звуковую дорожку (m4a/AAC, её умеет наш декодер) в stdout.
 pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
-    // «#alt» — повтор после отказа YouTube: другой набор клиентов
-    let (vid, alt) = match vid.strip_suffix("#alt") { Some(v) => (v, true), None => (vid, false) };
+    // «#alt1», «#alt2» — повтор после отказа YouTube: другой набор клиентов
+    let (vid, attempt) = match vid.split_once("#alt") { Some((v, n)) => (v, n.parse().unwrap_or(1)), None => (vid, 0) };
     let url = format!("https://www.youtube.com/watch?v={vid}");
-    let mut c = base(exe);
-    if alt { c.args(["--extractor-args", ALT_CLIENTS]); }
+    let mut c = media(exe, attempt);
     c.args(["-f", audio_format(), "--no-playlist", "--no-part", "--quiet", "-o", "-", &url])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -201,8 +249,7 @@ pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), Str
     let mut ok = false;
     for attempt in 0..3 {
         if attempt > 0 { std::thread::sleep(std::time::Duration::from_millis(1500 * attempt)); }
-        let mut c = base(exe);
-        if attempt > 0 { c.args(["--extractor-args", ALT_CLIENTS]); }
+        let mut c = media(exe, attempt as usize);
         let o = c.args(["-f", audio_format(), "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
             .output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
         if o.status.success() { ok = true; break; }
@@ -223,7 +270,7 @@ pub fn kill_tree(pid: u32) {
 /// Прямая ссылка на видеодорожку H.264 (без звука, до 720p): её открывает Media Foundation.
 pub fn video_url(exe: &str, vid: &str) -> Result<String, String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
-    let o = base(exe)
+    let o = media(exe, 0)
         .args(["-f", "bestvideo[vcodec^=avc1][height<=720][ext=mp4]/best[vcodec^=avc1][height<=720]/18", "--no-playlist", "-g", &url])
         .output()
         .map_err(|e| e.to_string())?;

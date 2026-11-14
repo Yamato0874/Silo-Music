@@ -109,5 +109,6 @@ fn main() {
     let opts = eframe::NativeOptions { viewport: vp, ..Default::default() };
     let d2 = dir.clone();
     let _ = eframe::run_native("Silo Player", opts, Box::new(move |cc| Ok(Box::new(app::SiloApp::new(cc, handle, backend, d2)))));
+    ytdlp::stop_pot();
     drop(rt);
 }

@@ -201,7 +201,7 @@ pub struct SiloApp {
     /// повторы yt-dlp для трека (бот-проверка и сбои): сколько уже было, когда повторить, какие треки берём другим клиентом YouTube
     yt_retry: HashMap<String, u8>,
     yt_retry_at: Option<(String, f64)>,
-    yt_alt: HashSet<String>,
+    yt_alt: HashMap<String, u8>,
 }
 
 impl SiloApp {
@@ -223,7 +223,7 @@ impl SiloApp {
         let cache = crate::cache::Cache::new(&local.join("cache"));
         let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
-            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(), yt_retry: HashMap::new(), yt_retry_at: None, yt_alt: HashSet::new(),
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(), yt_retry: HashMap::new(), yt_retry_at: None, yt_alt: HashMap::new(),
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,
@@ -573,7 +573,7 @@ impl SiloApp {
             if t.source != "local" { if let Some(p) = self.cache.orig(&key) { return Some((file(p), false)); } }
         }
         match t.source.as_str() {
-            "youtube" if !self.force_embed.contains(&t.id) => self.ytdlp_exe().map(|exe| { let v = t.id.trim_start_matches("youtube:"); (Src::Ytdlp(if self.yt_alt.contains(&t.id) { format!("{v}#alt") } else { v.to_string() }, exe), false) }),
+            "youtube" if !self.force_embed.contains(&t.id) => self.ytdlp_exe().map(|exe| { let v = t.id.trim_start_matches("youtube:"); (Src::Ytdlp(match self.yt_alt.get(&t.id) { Some(n) if *n > 0 => format!("{v}#alt{n}"), _ => v.to_string() }, exe), false) }),
             "youtube" => None,
             "soundcloud" => None,
             "local" => Some((Src::File(t.audio.clone()), false)),
@@ -637,7 +637,7 @@ impl SiloApp {
     /// Каждый кадр: смена трека, подбор YouTube для Deezer, предзагрузка, события движка, состояние.
     pub fn tick(&mut self) {
         // раз в сутки тихо обновляем свой yt-dlp (YouTube часто меняется, старая версия перестаёт работать)
-        if self.prefs.yt_mode == "ytdlp" { if let Some(exe) = self.ytdlp_exe() { crate::ytdlp::auto_update(&self.rt, exe); } }
+        if self.prefs.yt_mode == "ytdlp" { if let Some(exe) = self.ytdlp_exe() { crate::ytdlp::auto_update(&self.rt, exe); } crate::ytdlp::start_pot(); }
         // yt-dlp не найден: один раз скачиваем официальный и сверяем контрольную сумму
         if self.prefs.yt_mode == "ytdlp" && !crate::ytdlp::download_attempted() && self.ytdlp_exe().is_none() { crate::ytdlp::start_download(&self.rt); }
         // «Средний» нельзя держать включённым без установленной нейросети
@@ -676,7 +676,7 @@ impl SiloApp {
                         diag(&format!("yt-dlp не отдал звук ({}, попытка {}): {m}", c.id, n + 1));
                         if n < if bot { 3 } else { 2 } {
                             self.yt_retry.insert(c.id.clone(), n + 1);
-                            if n >= 1 { self.yt_alt.insert(c.id.clone()); } else { self.yt_alt.remove(&c.id); }
+                            self.yt_alt.insert(c.id.clone(), n + 1);
                             self.yt_retry_at = Some((c.id.clone(), now + if n == 0 { 0.3 } else { 1.5 * n as f64 }));
                         } else {
                             // не вышло за несколько попыток: тихо идём к следующему треку
