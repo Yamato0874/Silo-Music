@@ -22,3 +22,4 @@ v.err
 Thumbs.db
 target-native/
 native/installer/bin/
+native/installer/pot/

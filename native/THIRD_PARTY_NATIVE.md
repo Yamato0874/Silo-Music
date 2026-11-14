@@ -378,3 +378,7 @@ Apollo: автор JusperLee (github.com/JusperLee/Apollo), лицензия CC 
 | zopfli | 0.8.4 | Apache-2.0 | https://github.com/zopfli-rs/zopfli |
 | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib | https://github.com/etemesi254/zune-image |
 | zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib | https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg |
+
+## bgutil-ytdlp-pot-provider 2.0.2
+
+GPL-3.0-only, https://github.com/Brainicism/bgutil-ytdlp-pot-provider. Отдельная программа (генератор PO-токенов для yt-dlp на Node.js) и плагин yt-dlp; ставится установщиком в папку `pot` и `yt-dlp\yt-dlp-plugins` без изменений, текст лицензии лежит в `pot\LICENSE`. Исходный код: тег 2.0.2 в репозитории выше. Зависимости из npm (в `pot\server\node_modules`) распространяются на условиях своих лицензий.

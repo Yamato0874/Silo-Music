@@ -131,8 +131,11 @@ impl Bwe {
             let kc = ch.kc.round() as usize;
             if kc + 8 < kmax {
                 let w = kmax - kc;
+                // при низком срезе (6–10 кГц) пустая полоса шире, чем есть под срезом: копируем полосу шириной p по кругу,
+                // иначе k - w уходит ниже нуля (вылет 1.3.2: индекс 18446744073709551615)
+                let p = w.min(kc / 2).max(1);
                 for k in kc + 1..=kmax {
-                    let src = k - w;
+                    let src = kc + 1 - p + (k - kc - 1) % p;
                     let t = (k - kc) as f32 / w as f32;
                     let g = ch.ext * 10f32.powf(-(atten + 12.0 * t) / 20.0);
                     let (sr, si) = (ch.re[src] * g, ch.im[src] * g);
@@ -280,6 +283,17 @@ mod tests {
     fn rebuilds_top_above_16k_cut_48000() { check_cut(48000.0, 16000.0); }
     #[test]
     fn rebuilds_top_above_14k_cut() { check_cut(44100.0, 14000.0); }
+
+    /// низкий срез (6,5–11 кГц, старые mp3 и видео YouTube низкого качества): раньше индекс уходил ниже нуля и программа падала
+    #[test]
+    fn low_cut_does_not_crash() {
+        for (fs, cut) in [(44100.0, 6500.0), (44100.0, 8000.0), (48000.0, 7000.0), (48000.0, 11000.0)] {
+            let x = pink_noise_cut(1 << 16, fs, cut, 0.1, 5);
+            let mut b = Bwe::new(fs as f32, 12.0);
+            let y = run_stereo(&mut b, &x);
+            assert!(y.iter().all(|v| v.is_finite() && v.abs() < 2.0), "срез {cut}");
+        }
+    }
 
     #[test]
     fn silence_and_impulses_are_stable() {

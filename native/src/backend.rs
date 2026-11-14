@@ -129,21 +129,11 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
     let mut fresh = 0;
     // сами любимые исполнители: их топ на YouTube (поиск один раз на исполнителя, кэш 30 дней)
     let mut out: Vec<Track> = vec![];
-    for a in seeds.iter().take(nfav.min(10)) {
-        let ck = format!("yt:art:{}", a.to_lowercase());
-        let hit: Option<Vec<Track>> = db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
-        let v = match hit {
-            Some(v) => v,
-            None => {
-                if fresh >= 4 || yt_blocked() { continue; }
-                fresh += 1;
-                yt_note(s);
-                let Ok(v) = ytw::search(key, a, 10).await.map_err(yt_err) else { continue };
-                let v = ytw::keep_music(key, v).await.unwrap_or_default();
-                let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
-                v
-            }
-        };
+    let favs: Vec<String> = seeds.iter().take(nfav.min(10)).cloned().collect();
+    let got = yt_artist_batch(s, key, &favs, 4).await;
+    fresh += got.1;
+    for a in &favs {
+        let Some(v) = got.0.get(&a.to_lowercase()) else { continue };
         // не всегда первые три из десяти: иначе волна по любимому исполнителю крутит одни и те же песни
         let rot = if v.is_empty() { 0 } else { (n / 11 + a.len()) % v.len() };
         out.extend(v.iter().cycle().skip(rot).take(3.min(v.len())).cloned());
@@ -158,7 +148,7 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
         let id = match cached {
             Some(x) => x,
             None => {
-                if mb_calls > 0 { std::thread::sleep(std::time::Duration::from_millis(1100)); } // MusicBrainz: не чаще 1 запроса в секунду
+                if mb_calls > 0 { tokio::time::sleep(std::time::Duration::from_millis(1100)).await; } // MusicBrainz: не чаще 1 запроса в секунду
                 mb_calls += 1;
                 let x = lbradio::mbid(a).await.ok().flatten().unwrap_or_default();
                 let _ = db(s).cache_put(&mk, &x);
@@ -172,27 +162,38 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
         for x in list { if !seeds.iter().any(|y| y.eq_ignore_ascii_case(&x)) && !sim.iter().any(|y| y.eq_ignore_ascii_case(&x)) { sim.push(x); } }
     }
     // похожих берём по кругу; новых (без кэша) ищем не больше 3 сверх любимых, чтобы беречь лимит поисков
-    for k in 0..sim.len().min(20) {
-        let a = &sim[(n / 13 + k * 3) % sim.len()];
-        let ck = format!("yt:art:{}", a.to_lowercase());
-        let hit: Option<Vec<Track>> = db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
-        let v = match hit {
-            Some(v) => v,
-            None => {
-                if fresh >= 7 || yt_blocked() { continue; }
-                fresh += 1;
-                yt_note(s);
-                let Ok(v) = ytw::search(key, a, 10).await.map_err(yt_err) else { continue };
-                let v = ytw::keep_music(key, v).await.unwrap_or_default();
-                let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
-                v
-            }
-        };
+    let sims: Vec<String> = (0..sim.len().min(20)).map(|k| sim[(n / 13 + k * 3) % sim.len()].clone()).collect();
+    let got = yt_artist_batch(s, key, &sims, 7usize.saturating_sub(fresh)).await;
+    for a in &sims {
+        let Some(v) = got.0.get(&a.to_lowercase()) else { continue };
         // не всегда первые три из десяти: иначе волна по любимому исполнителю крутит одни и те же песни
         let rot = if v.is_empty() { 0 } else { (n / 11 + a.len()) % v.len() };
         out.extend(v.iter().cycle().skip(rot).take(3.min(v.len())).cloned());
     }
     out
+}
+/// Треки исполнителей на YouTube: из кэша (30 дней), а новых — не больше max_fresh, и все новые поиски идут одновременно
+/// (через yt-dlp каждый поиск — отдельный процесс на 2–4 с; по очереди волна собиралась больше 10 с).
+async fn yt_artist_batch(s: &App, key: &str, names: &[String], max_fresh: usize) -> (HashMap<String, Vec<Track>>, usize) {
+    let mut out: HashMap<String, Vec<Track>> = HashMap::new();
+    let mut miss: Vec<String> = vec![];
+    for a in names {
+        let ck = format!("yt:art:{}", a.to_lowercase());
+        match db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) {
+            Some(v) => { out.insert(a.to_lowercase(), v); }
+            None => if miss.len() < max_fresh && !yt_blocked() && !miss.iter().any(|x| x.eq_ignore_ascii_case(a)) { miss.push(a.clone()); },
+        }
+    }
+    let n = miss.len();
+    let res = futures::future::join_all(miss.into_iter().map(|a| async move {
+        yt_note(s);
+        let v = ytw::search(key, &a, 10).await.map_err(yt_err).ok()?;
+        let v = ytw::keep_music(key, v).await.unwrap_or_default();
+        let _ = db(s).cache_put(&format!("yt:art:{}", a.to_lowercase()), &serde_json::to_string(&v).unwrap_or_default());
+        Some((a.to_lowercase(), v))
+    })).await;
+    out.extend(res.into_iter().flatten());
+    (out, n)
 }
 pub async fn yt_genre_core(s: &App, key: &str, text: &str, region: &str) -> R<Vec<Track>> {
     // лимит поисков исчерпан или плейлист не нашёлся: берём популярную музыку (1 ед., другой лимит)
@@ -396,14 +397,19 @@ pub async fn deezer_search(s: &App, q: &str, limit: u32) -> R<Vec<Track>> {
     let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
-/// Подсказки при вводе: несколько треков Deezer.
+/// Подсказки при вводе: несколько результатов YouTube через yt-dlp (без квоты), кэш в базе на 6 часов.
 pub async fn suggest_tracks(s: &App, query: String) -> R<Vec<Track>> {
-    if query.trim().chars().count() < 2 { return Ok(vec![]); }
-    let _ = query; return Ok(vec![]);
-    #[allow(unreachable_code)]
-    let mut v = deezer_search(&s, &query, 25).await?;
+    let q = query.trim().to_lowercase();
+    if q.chars().count() < 2 || ytdlp_mode().is_none() { return Ok(vec![]); }
+    let ck = format!("sug:{q}");
+    if let Some(v) = db(&s).cache_get(&ck, 6 * 3600).map_err(e)?.and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) { return Ok(v); }
+    let key = setting(&s, "youtube_api_key")?;
+    let mut v = ytw::search(&key, &q, 8).await.map_err(yt_err)?;
+    let kept = ytw::keep_music(&key, v.clone()).await.unwrap_or_else(|_| v.clone());
+    v = kept;
     drop_banned(&s, &mut v);
     v.truncate(6);
+    let _ = db(&s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
     Ok(v)
 }
 static FREE_START: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -761,7 +767,10 @@ pub async fn echo_mix(
         // YouTube и SoundCloud: не больше двух жанров за подборку (экономия квоты YouTube)
         let pos = tags.iter().position(|x| x == tag);
         let ext = pos.map_or(false, |i| i < 2);
-        let text = format!("{} music", qt.first().cloned().unwrap_or_else(|| tag.clone()));
+        // разнообразие: примерно в половине запросов к жанру добавляется язык или регион (чтобы волна не крутила одно и то же)
+        const FLAVOR: [&str; 14] = ["russian", "english", "spanish", "french", "german", "japanese", "korean", "italian", "portuguese", "turkish", "arabic", "hindi", "polish", "swedish"];
+        let flavor = if explore && rng.f() < 0.6 || rng.f() < 0.35 { FLAVOR[rng.below(FLAVOR.len())] } else { "" };
+        let text = format!("{} {} music", qt.first().cloned().unwrap_or_else(|| tag.clone()), flavor).replace("  ", " ");
         // YouTube дорогой (100 ед. за поиск): только один жанр за подборку, результаты кэшируются на 3 суток;
         // при исчерпанной квоте тихо пропускаем (сообщение один раз)
         // источники опрашиваются параллельно: подборка собирается быстрее
@@ -886,6 +895,21 @@ pub fn list_downloads(s: &App) -> R<Vec<(Track, String)>> {
     db(&s).list_downloads().map_err(e)
 }
 /// Скачивание только если лицензия трека это разрешает (audiodownload_allowed).
+/// Скачать звук YouTube-трека через yt-dlp (m4a) в папку загрузок и записать в «Загрузки».
+pub async fn download_youtube(s: &App, exe: String, track: Track) -> R<String> {
+    let vid = track.id.trim_start_matches("youtube:").to_string();
+    let safe = |x: &str| x.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c }).collect::<String>();
+    let dir = download_dir(&s)?;
+    std::fs::create_dir_all(&dir).map_err(e)?;
+    let path = dir.join(format!("{} - {}.m4a", safe(&track.artist), safe(&track.name)));
+    let p2 = path.clone();
+    tokio::task::spawn_blocking(move || crate::ytdlp::audio_file(&exe, &vid, &p2)).await.map_err(e)?.map_err(|x| x)?;
+    let p = path.to_string_lossy().to_string();
+    let local = Track { id: format!("local:{}", track.id), source: "local".into(), audio: p.clone(), ..track };
+    db(&s).save_download(&local, &p).map_err(e)?;
+    Ok(p)
+}
+
 pub async fn download_track(s: &App, track: Track) -> R<String> {
     if !["jamendo", "ccmixter", "archive"].contains(&track.source.as_str()) {
         return Err("Скачивать можно только треки Jamendo, ccMixter и Internet Archive с открытой лицензией".into());
@@ -921,7 +945,15 @@ pub fn ytdlp_mode() -> Option<String> { YTDLP.lock().unwrap().clone() }
 pub mod ytw {
     use silo_core::{model::*, youtube, Result};
     fn dlp() -> Option<String> { super::ytdlp_mode() }
-    async fn run(exe: String, args: Vec<String>) -> Result<serde_json::Value> {
+    async fn run(mut exe: String, args: Vec<String>) -> Result<serde_json::Value> {
+        if exe.is_empty() {
+            // первый запуск: yt-dlp ещё скачивается, ждём (до полутора минут), и поиск после этого пойдёт сам
+            for _ in 0..450 {
+                if let Some(p) = crate::ytdlp::find("") { exe = p.to_string_lossy().to_string(); break; }
+                if crate::ytdlp::download_attempted() && !crate::ytdlp::download_state().0 { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
         if exe.is_empty() { return Err("yt-dlp не найден".into()); }
         tokio::task::spawn_blocking(move || crate::ytdlp::json(&exe, &args)).await.map_err(|e| silo_core::Error::Msg(e.to_string()))?.map_err(silo_core::Error::Msg)
     }

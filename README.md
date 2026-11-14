@@ -1,8 +1,8 @@
 # Silo Player
 
-Локальный музыкальный плеер для Windows на Rust. Интерфейс на [egui](https://github.com/emilk/egui), собственный звуковой движок (symphonia и cpal), без веб-движка. Интерфейс на русском и английском, 7 тем. Текущая версия: **1.3.1**.
+Локальный музыкальный плеер для Windows на Rust. Интерфейс на [egui](https://github.com/emilk/egui), собственный звуковой движок (symphonia и cpal), без веб-движка. Интерфейс на русском и английском, 7 тем. Текущая версия: **1.3.2**.
 
-Проект открытый, лицензия [MIT](LICENSE). Сторонние лицензии: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) и [native/THIRD_PARTY_NATIVE.md](native/THIRD_PARTY_NATIVE.md). Заметки о версиях: [native/RELEASE_NOTES_1.3.1.md](native/RELEASE_NOTES_1.3.1.md) и страница [Releases](https://github.com/Yamato0874/Silo-Music/releases). Каждая новая версия публикуется там с описанием изменений.
+Проект открытый, лицензия [MIT](LICENSE). Сторонние лицензии: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) и [native/THIRD_PARTY_NATIVE.md](native/THIRD_PARTY_NATIVE.md). Заметки о версиях: [native/RELEASE_NOTES_1.3.2.md](native/RELEASE_NOTES_1.3.2.md) и страница [Releases](https://github.com/Yamato0874/Silo-Music/releases). Каждая новая версия публикуется там с описанием изменений.
 
 ## Возможности
 - **Режим «Библиотека yt-dlp»** (по умолчанию): поиск, «Эхо», подборки, страница артиста, звук и клип YouTube через yt-dlp без ключа API; запасной путь через бесплатные зеркала и официальный плеер. Режим «Чистый YouTube» с официальным плеером остаётся в Настройках.
@@ -15,7 +15,7 @@
 - Своя шапка окна, трей, глобальные клавиши, плашка Windows.
 
 ## Установка
-Со страницы [Releases](https://github.com/Yamato0874/Silo-Music/releases) скачайте либо установщик `Silo-Player_*_x64-setup.exe`, либо один портативный `Silo-Player.exe` (ставить не нужно). Контрольные суммы в `SHA256SUMS.txt`. Установщик кладёт официальный `yt-dlp.exe` отдельным файлом рядом с программой; портативный `Silo-Player.exe` при первом запуске сам скачивает официальный yt-dlp с github.com/yt-dlp/yt-dlp/releases и сверяет SHA-256 с официальным списком: ничего искать и настраивать не надо.
+Со страницы [Releases](https://github.com/Yamato0874/Silo-Music/releases) скачайте установщик `Silo-Player_*_x64-setup.exe`. Контрольные суммы в `SHA256SUMS.txt`. Установщик кладёт официальный yt-dlp (папкой, запускается втрое быстрее одного файла) рядом с программой; если его нет, программа сама скачивает его с github.com/yt-dlp/yt-dlp/releases и сверяет SHA-256 с официальным списком, потом раз в сутки тихо обновляет: ничего искать и настраивать не надо.
 
 **Антивирусы.** Файлы пока не подписаны сертификатом, а программа написана на Rust и свёрнута в один exe, поэтому несколько антивирусов (по сигнатурам вроде `Evo-gen`, `Suspicious.low.ml.score`) могут ложно срабатывать на непроверенный файл. Исходный код открыт, сборка воспроизводима (см. ниже), контрольные суммы в релизе. Если антивирус ругается, пришлите отчёт в [Issues](https://github.com/Yamato0874/Silo-Music/issues): мы отправляем файлы разработчикам антивирусов как ложное срабатывание. Подпись кода через SignPath Foundation в планах.
 
