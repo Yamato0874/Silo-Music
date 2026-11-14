@@ -156,6 +156,31 @@ pub fn open_url(url: &str) -> Result<(), String> {
     std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Полноэкранное окно другой программы (игра, видео): тяжёлые фоновые задачи на это время ждут.
+pub fn fullscreen_app_active() -> bool {
+    use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() { return false; }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        if pid == std::process::id() { return false; }
+        let mut cls = [0u16; 64];
+        let n = GetClassNameW(hwnd, cls.as_mut_ptr(), 64).max(0) as usize;
+        let name = String::from_utf16_lossy(&cls[..n]);
+        if ["Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"].contains(&name.as_str()) { return false; }
+        let mut r: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut r) == 0 { return false; }
+        let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) == 0 { return false; }
+        r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom
+    }
+}
+
 const EVT: &str = "Local\\SiloPlayerNativeShow";
 fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() }
 

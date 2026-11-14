@@ -26,10 +26,13 @@ souvlaki = "0.9"
 tray-icon = "0.26"
 global-hotkey = "0.10"
 rfd = "0.18"
+hound = "3.5"
+sha2 = "0.10"
+zip = { version = "9", default-features = false, features = ["deflate"] }
 notify-rust = "4"
 raw-window-handle = "0.6"
 windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_Foundation", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
-windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Security"] }
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Security", "Win32_Graphics_Gdi"] }
 
 [build-dependencies]
 winresource = "0.1"

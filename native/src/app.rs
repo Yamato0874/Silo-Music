@@ -1,6 +1,6 @@
 //! Состояние приложения и логика плеера (то же, что App.tsx): очередь, перемешивание, повтор, «Эхо»,
 //! сессия, настройки, оценки, тосты, диалоги, горячие клавиши, маршрутизация воспроизведения.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
@@ -177,6 +177,17 @@ pub struct SiloApp {
     pub bench_step: u8,
     pub selftest_at: f64,
     fresh_previews: std::collections::HashSet<String>,
+    /// звук на диске: следующие 2 трека скачиваются заранее, улучшенные версии лежат рядом
+    pub cache: crate::cache::Cache,
+    /// «Средний» апскейл (нейросеть Apollo): установка, очередь, статус
+    pub enh: crate::enhance::Enhancer,
+    prefetch_at: f64,
+    trim_at: f64,
+    preload_gen: u64,
+    preloaded_enh: bool,
+    cur_enhanced: bool,
+    /// чем играет текущий трек (для проверок и журнала)
+    pub last_src: String,
 }
 
 impl SiloApp {
@@ -193,7 +204,12 @@ impl SiloApp {
         let pal = Pal::get(&prefs.theme);
         pal.apply(&ctx);
         let plat = crate::platform::Platform::new(cc, &ctx);
+        // кэш звука и нейросеть живут в локальных данных (не в роуминге): они большие и переживают переустановку
+        let local = std::env::var_os("SILO_LOCAL_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native"));
+        let cache = crate::cache::Cache::new(&local.join("cache"));
+        let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(),
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,
@@ -494,7 +510,9 @@ impl SiloApp {
         let p = &self.prefs;
         let mut eq = [0f32; 10];
         for (i, v) in p.eq.iter().take(10).enumerate() { eq[i] = *v; }
-        self.eng.set_fx(Fx { eq_on: p.eq_on, eq, normalize: p.normalize, upscale: p.upscale });
+        // «Средний»: если трек уже улучшен нейросетью, лёгкий эксайтер не нужен; пока не готов, играет «Слабый» вариант
+        let up = if p.upscale == 2 { if self.cur_enhanced { 0 } else { 1 } } else { p.upscale };
+        self.eng.set_fx(Fx { eq_on: p.eq_on, eq, normalize: p.normalize, upscale: up });
         self.eng.set_crossfade(p.crossfade, p.gapless);
         self.eng.set_speed(if p.rate > 0.0 { p.rate } else { 1.0 });
     }
@@ -510,14 +528,78 @@ impl SiloApp {
             c.2.clone()
         })
     }
-    /// Как играть трек: свой движок или встроенный официальный плеер.
-    fn src_for(&self, t: &Track) -> Option<Src> {
+    /// Файл с оригиналом трека для улучшения: свой локальный файл или скачанный в кэш.
+    fn orig_file(&self, t: &Track) -> Option<std::path::PathBuf> {
+        if t.source == "local" { let p = std::path::PathBuf::from(&t.audio); return p.is_file().then_some(p); }
+        self.cache.orig(&crate::cache::key(&t.id))
+    }
+    /// Как играть трек: улучшенный файл из кэша, скачанный оригинал, поток или встроенный официальный плеер. Второе значение: звучит улучшенная версия.
+    fn src_for(&self, t: &Track) -> Option<(Src, bool)> {
+        let key = crate::cache::key(&t.id);
+        let file = |p: std::path::PathBuf| Src::File(p.to_string_lossy().to_string());
+        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && self.ytdlp_exe().is_none());
+        if !embed_only {
+            if self.prefs.upscale == 2 && self.enh.ready() { if let Some(p) = self.cache.enhanced(&key) { return Some((file(p), true)); } }
+            if t.source != "local" { if let Some(p) = self.cache.orig(&key) { return Some((file(p), false)); } }
+        }
         match t.source.as_str() {
-            "youtube" => self.ytdlp_exe().map(|exe| Src::Ytdlp(t.id.trim_start_matches("youtube:").to_string(), exe)),
+            "youtube" => self.ytdlp_exe().map(|exe| (Src::Ytdlp(t.id.trim_start_matches("youtube:").to_string(), exe), false)),
             "soundcloud" => None,
-            "local" => Some(Src::File(t.audio.clone())),
-            _ if !t.audio.is_empty() => Some(Src::Url(t.audio.clone())),
+            "local" => Some((Src::File(t.audio.clone()), false)),
+            _ if !t.audio.is_empty() => Some((Src::Url(t.audio.clone()), false)),
             _ => None,
+        }
+    }
+
+    /// Скачать трек в кэш заранее (YouTube через yt-dlp или прямой адрес), если его там ещё нет.
+    fn ensure_cached(&mut self, t: &Track, now: f64) {
+        let key = crate::cache::key(&t.id);
+        if matches!(t.source.as_str(), "local" | "soundcloud" | "deezer") || self.cache.orig(&key).is_some() { return; }
+        let (cache, ctx) = (self.cache.clone(), self.ctx.clone());
+        if t.source == "youtube" {
+            let Some(exe) = self.ytdlp_exe() else { return };
+            if !cache.begin(&key, now) { return; }
+            let vid = t.id.trim_start_matches("youtube:").to_string();
+            self.rt.spawn_blocking(move || {
+                let (tmp, dst) = (cache.tmp_for(&key, "m4a"), cache.path_for(&key, "m4a"));
+                let r = crate::ytdlp::audio_file(&exe, &vid, &tmp).and_then(|_| std::fs::rename(&tmp, &dst).map_err(|e| e.to_string()));
+                cache.finish(&key, r.is_ok().then_some(dst), now);
+                ctx.request_repaint();
+            });
+        } else if t.audio.starts_with("http") {
+            if !cache.begin(&key, now) { return; }
+            let url = t.audio.clone();
+            self.rt.spawn(async move {
+                let ext = crate::cache::ext_of_url(&url);
+                let (tmp, dst) = (cache.tmp_for(&key, ext), cache.path_for(&key, ext));
+                let r = crate::cache::download_http(&url, &tmp, &dst).await;
+                cache.finish(&key, r.ok(), now);
+                ctx.request_repaint();
+            });
+        }
+    }
+
+    /// Раз в секунду: готовим два следующих трека (скачать, улучшить), чистим кэш по размеру.
+    fn prefetch_tick(&mut self, now: f64) {
+        if now - self.prefetch_at < 1.0 { return; }
+        self.prefetch_at = now;
+        if self.pos < 0 || self.queue.is_empty() { return; }
+        let p = self.pos as usize;
+        let ahead: Vec<Track> = (1..=2).filter_map(|k| self.order.get(p + k).and_then(|i| self.queue.get(*i)).cloned()).collect();
+        let mut keep: HashSet<String> = ahead.iter().map(|t| crate::cache::key(&t.id)).collect();
+        if let Some(c) = self.cur() { keep.insert(crate::cache::key(&c.id)); }
+        for t in &ahead { self.ensure_cached(t, now); }
+        if self.prefs.upscale == 2 && self.enh.ready() {
+            let jobs: Vec<crate::enhance::EJob> = ahead.iter().filter_map(|t| {
+                let k = crate::cache::key(&t.id);
+                Some(crate::enhance::EJob { orig: self.orig_file(t)?, out: self.cache.enhanced_path(&k), key: k, secs: t.duration as f64 })
+            }).collect();
+            self.enh.want(jobs);
+        }
+        if now - self.trim_at > 60.0 {
+            self.trim_at = now;
+            let c = self.cache.clone();
+            self.rt.spawn_blocking(move || { c.trim(false, 1_500_000_000, &keep); c.trim(true, 2_500_000_000, &keep); });
         }
     }
 
@@ -539,7 +621,10 @@ impl SiloApp {
                     if n >= 0 { self.pos = n; }
                     self.token = t;
                     self.cur_key = format!("{}#{}", self.cur().map(|c| c.id.clone()).unwrap_or_default(), self.pos);
+                    self.cur_enhanced = self.preloaded_enh;
+                    self.last_src = if self.cur_enhanced { "улучшенный файл (предзагрузка)".into() } else { "предзагрузка".into() };
                     self.preloaded = None;
+                    self.apply_engine_prefs();
                     self.on_track_changed();
                 }
                 Event::Error(t, m) if t == self.token => {
@@ -573,15 +658,24 @@ impl SiloApp {
             if let Some(code) = error { self.err(format!("YouTube: видео нельзя воспроизвести во встроенном плеере ({code}), пропускаю")); self.ended(); }
             else if ended { self.ended(); }
         }
+        // два следующих трека готовим заранее (скачивание, «Средний» апскейл)
+        self.prefetch_tick(now);
         // предзагрузка следующего (gapless и кроссфейд)
         if self.route == Route::Engine && (self.prefs.gapless || self.prefs.crossfade > 0.0) {
             if let Some(n) = self.next_track().cloned() {
                 let ok = n.source != "deezer" || n.kind == "preview";
-                if let (true, Some(src)) = (ok, self.src_for(&n)) {
-                    if self.preloaded.as_ref().is_none_or(|p| p.1 != n.id) {
-                        let tok = self.token + 1_000_000 + self.pos as u64;
+                if let (true, Some((src, enh))) = (ok, self.src_for(&n)) {
+                    // YouTube без файла: ждём, пока подготовка его скачает, и не запускаем второй yt-dlp
+                    let waiting = matches!(src, Src::Ytdlp(..)) && self.cache.is_inflight(&crate::cache::key(&n.id));
+                    let same = self.preloaded.as_ref().is_some_and(|p| p.1 == n.id);
+                    // улучшенная версия появилась после предзагрузки оригинала: заменяем
+                    let upgrade = same && enh && !self.preloaded_enh;
+                    if !waiting && (!same || upgrade) {
+                        self.preload_gen += 1;
+                        let tok = self.token + 1_000_000 + self.preload_gen;
                         self.eng.preload(tok, src, n.duration as f64, self.prefs.rate.max(0.25));
                         self.preloaded = Some((tok, n.id.clone()));
+                        self.preloaded_enh = enh;
                     }
                 }
             }
@@ -668,8 +762,12 @@ impl SiloApp {
         self.token += 1;
         let speed = if self.prefs.rate > 0.0 { self.prefs.rate } else { 1.0 };
         match self.src_for(&tr) {
-            Some(src) => {
+            Some((src, enh)) => {
                 self.close_embed();
+                let pre = matches!(&self.preloaded, Some((_, id)) if *id == tr.id);
+                self.cur_enhanced = if pre { self.preloaded_enh } else { enh };
+                self.last_src = format!("{}{:?}", if pre { "предзагрузка " } else { "" }, src);
+                self.apply_engine_prefs();
                 let tok = match &self.preloaded { Some((t, id)) if *id == tr.id => *t, _ => self.token };
                 self.token = tok;
                 self.preloaded = None;

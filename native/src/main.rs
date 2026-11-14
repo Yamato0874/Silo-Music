@@ -4,6 +4,8 @@
 mod app;
 mod audio;
 mod backend;
+mod cache;
+mod enhance;
 mod demo;
 mod embed;
 mod i18n;

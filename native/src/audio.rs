@@ -727,10 +727,12 @@ fn decode(sh: &Shared, deck: &Deck, src: Src, rt: &tokio::runtime::Handle) -> Re
 
 /// Пересэмплирование кубической интерполяцией (стерео, чередование каналов).
 #[derive(Default)]
-struct Resampler { pos: f64, hist: [[f32; 2]; 3], sinc_hist: Vec<f32>, spos: f64 }
+pub struct Resampler { pos: f64, hist: [[f32; 2]; 3], sinc_hist: Vec<f32>, spos: f64 }
 impl Resampler {
     /// Апскейл «Слабый»: оконный sinc (Ланцош, 16 точек) — чище верх, без «звона» кубической интерполяции.
-    fn process_sinc(&mut self, inp: &[f32], from: u32, to: u32, out: &mut Vec<f32>) {
+    pub fn process_sinc(&mut self, inp: &[f32], from: u32, to: u32, out: &mut Vec<f32>) {
+        // та же частота: звук проходит без изменений
+        if from == to { out.extend_from_slice(inp); return; }
         const A: isize = 8;
         self.sinc_hist.extend_from_slice(inp);
         let n = (self.sinc_hist.len() / 2) as isize;

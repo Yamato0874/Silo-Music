@@ -101,7 +101,19 @@ pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
     Ok(child)
 }
 
+/// Скачать звуковую дорожку в файл (для заранее подготовленных треков).
+pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), String> {
+    let url = format!("https://www.youtube.com/watch?v={vid}");
+    let o = base(exe)
+        .args(["-f", "bestaudio[ext=m4a]/140/bestaudio[acodec^=mp4a]", "--no-playlist", "--no-part", "--force-overwrites", "--quiet", "-o"]).arg(out).arg(&url)
+        .output().map_err(|e| format!("yt-dlp не запустился: {e}"))?;
+    if !o.status.success() { let _ = std::fs::remove_file(out); return Err(last_line(&o.stderr)); }
+    if std::fs::metadata(out).map(|m| m.len()).unwrap_or(0) < 10_000 { let _ = std::fs::remove_file(out); return Err("yt-dlp: файл пустой".into()); }
+    Ok(())
+}
+
 /// Остановить yt-dlp вместе с дочерними процессами (Node/Deno).
+/// 
 pub fn kill_tree(pid: u32) {
     let _ = cmd("taskkill").args(["/F", "/T", "/PID", &pid.to_string()]).output();
 }
