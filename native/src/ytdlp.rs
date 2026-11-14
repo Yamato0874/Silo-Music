@@ -141,6 +141,21 @@ pub fn update(exe: &str) -> Result<String, String> {
     Ok(text.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("готово").trim().to_string())
 }
 
+/// Раз в сутки тихо запустить «yt-dlp -U» для своего (скачанного или установленного) yt-dlp. Результат пишется в журнал.
+pub fn auto_update(rt: &tokio::runtime::Handle, exe: String) {
+    static DONE: OnceLock<()> = OnceLock::new();
+    if DONE.set(()).is_err() || !is_managed(&exe) { return; }
+    let mark = bin_dir().join("last-update");
+    let fresh = std::fs::metadata(&mark).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map(|d| d.as_secs() < 86400).unwrap_or(false);
+    if fresh { return; }
+    rt.spawn_blocking(move || {
+        let r = update(&exe);
+        let _ = std::fs::create_dir_all(bin_dir());
+        let _ = std::fs::write(&mark, "");
+        crate::app::diag(&format!("обновление yt-dlp: {}", match r { Ok(m) => m, Err(e) => e }));
+    });
+}
+
 /// Процесс, который пишет звуковую дорожку (m4a/AAC, её умеет наш декодер) в stdout.
 pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");

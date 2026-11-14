@@ -53,6 +53,8 @@ pub struct Prefs {
     pub ytdlp_cookies: String,
     /// вопрос про cookies браузера уже задавался (спрашиваем один раз)
     pub ytdlp_cookies_asked: bool,
+    /// показывать плашки с ошибками (для разработчика; обычный пользователь их не видит, всё пишется в diag.log)
+    pub show_errors: bool,
     pub tray: bool,
     /// режим YouTube уже переведён на yt-dlp по умолчанию (однократно)
     pub yt_default_v2: bool,
@@ -65,7 +67,7 @@ impl Default for Prefs {
             shuffle: false, repeat: "off".into(), autoplay: true, crossfade: 0.0, gapless: true, normalize: false, eq_on: false, eq: vec![0.0; 10],
             quality: "normal".into(), theme: "amber".into(), lang: "ru".into(), volume: 0.8, onboarded: false, diversity: "balanced".into(), tastes: vec![], artists: vec![],
             show_video: false, lang_strict: true, rate: 1.0, notify: true, autostart: false, eq_auto: false,
-            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, ytdlp_cookies: String::new(), ytdlp_cookies_asked: false, tray: true, yt_default_v2: true, upscale: 0,
+            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, ytdlp_cookies: String::new(), ytdlp_cookies_asked: false, show_errors: false, tray: true, yt_default_v2: true, upscale: 0,
         }
     }
 }
@@ -280,7 +282,12 @@ impl SiloApp {
         if self.toasts.len() > 3 { self.toasts.remove(0); }
         self.toasts.push(Toast { id: self.toast_id, kind, text, until: now + dur, action });
     }
-    pub fn err(&mut self, e: impl std::fmt::Display) { self.toast(e.to_string(), ToastKind::Error); }
+    /// Ошибка: всегда пишется в журнал diag.log, плашка показывается только с включённым «Показывать ошибки» (Настройки → Внешний вид).
+    pub fn err(&mut self, e: impl std::fmt::Display) {
+        let m = e.to_string();
+        diag(&m);
+        if self.prefs.show_errors { self.toast(m, ToastKind::Error); }
+    }
 
     pub fn refresh_playlists(&mut self) {
         let b = self.be.clone();
@@ -625,6 +632,8 @@ impl SiloApp {
 
     /// Каждый кадр: смена трека, подбор YouTube для Deezer, предзагрузка, события движка, состояние.
     pub fn tick(&mut self) {
+        // раз в сутки тихо обновляем свой yt-dlp (YouTube часто меняется, старая версия перестаёт работать)
+        if self.prefs.yt_mode == "ytdlp" { if let Some(exe) = self.ytdlp_exe() { crate::ytdlp::auto_update(&self.rt, exe); } }
         // yt-dlp не найден: один раз скачиваем официальный и сверяем контрольную сумму
         if self.prefs.yt_mode == "ytdlp" && !crate::ytdlp::download_attempted() && self.ytdlp_exe().is_none() { crate::ytdlp::start_download(&self.rt); }
         // «Средний» нельзя держать включённым без установленной нейросети
@@ -682,12 +691,13 @@ impl SiloApp {
                         // yt-dlp не отдал звук: этот трек играет официальный плеер YouTube, битый файл из кэша удаляем
                         self.force_embed.insert(c.id.clone());
                         if let Some(p) = self.cache.orig(&crate::cache::key(&c.id)) { let _ = std::fs::remove_file(p); }
-                        if botcheck {
-                            if !self.bot_toast_shown { self.bot_toast_shown = true; self.toast("YouTube просит подтвердить, что вы не бот: играю через официальный плеер. Включить вход из браузера: Настройки → YouTube", ToastKind::Info); }
-                        } else if now - self.yt_err_toast_at > 120.0 {
+                        // пользователю ничего не показываем: трек просто играет через официальный плеер, причина в журнале
+                        diag(&format!("yt-dlp не отдал звук ({}): {m}", c.id));
+                        if self.prefs.show_errors && (botcheck && !self.bot_toast_shown || !botcheck && now - self.yt_err_toast_at > 120.0) {
+                            self.bot_toast_shown |= botcheck;
                             self.yt_err_toast_at = now;
                             let short: String = m.chars().take(70).collect();
-                            self.toast(format!("yt-dlp не отдал звук ({short}): играю через официальный плеер"), ToastKind::Info);
+                            self.toast(format!("yt-dlp: {short}"), ToastKind::Info);
                         }
                         self.preloaded = None;
                         self.cur_key.clear();
@@ -1006,3 +1016,14 @@ impl SiloApp {
     }
 }
 
+
+/// Тихий журнал диагностики: %LOCALAPPDATA%\app.silo.player.native\diag.log (до 1 МБ, потом начинается заново). Ключи и cookies сюда не пишутся.
+pub fn diag(msg: &str) {
+    use std::io::Write;
+    let dir = std::env::var_os("SILO_LOCAL_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native"));
+    let _ = std::fs::create_dir_all(&dir);
+    let p = dir.join("diag.log");
+    if std::fs::metadata(&p).map(|m| m.len() > 1_000_000).unwrap_or(false) { let _ = std::fs::remove_file(&p); }
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&p) { let _ = writeln!(f, "[{secs}] {msg}"); }
+}

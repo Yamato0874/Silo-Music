@@ -1266,8 +1266,10 @@ impl SiloApp {
                                 if btn_sm(ui, &pal, V::Chip, None, crate::i18n::tr(k, en), self.prefs.eq == v.to_vec()).clicked() { self.prefs.eq = v.to_vec(); }
                             }
                         });
-                        ui.add_space(10.0);
+                        ui.add_space(8.0);
                         if self.prefs.eq.len() < 10 { self.prefs.eq.resize(10, 0.0); }
+                        eq_curve(ui, &pal, &self.prefs.eq);
+                        ui.add_space(8.0);
                         ui.horizontal(|ui| {
                             for (i, f) in crate::audio::EQ_FREQS.iter().enumerate() {
                                 ui.vertical(|ui| {
@@ -1422,6 +1424,7 @@ impl SiloApp {
                 if self.ytdlp_exe().is_some() && btn(ui, &pal, V::Solid, Some("refresh"), crate::i18n::tr("ytDlpUpdate", en), false).clicked() { self.update_ytdlp(); }
                 ui.add_space(6.0);
                 sw(ui, &pal, &mut self.prefs.ytdlp_video, crate::i18n::tr("ytDlpVideo", en), "");
+                sw(ui, &pal, &mut self.prefs.show_errors, if en { "Show error messages (for developers)" } else { "Показывать сообщения об ошибках (для разработчика)" }, if en { "Errors are always written to diag.log in the app data folder" } else { "Ошибки всегда пишутся в diag.log в папке данных приложения" });
                 set_row(ui, &pal, if en { "Browser cookies for yt-dlp" } else { "Cookies браузера для yt-dlp" }, if en { "Turn on only if YouTube answers \"Sign in to confirm you are not a bot\": yt-dlp then reads YouTube cookies of the chosen browser on this computer." } else { "Включайте, только если YouTube отвечает «Подтвердите, что вы не бот»: yt-dlp тогда читает cookies YouTube выбранного браузера на этом компьютере." }, |ui| {
                     let cur = self.prefs.ytdlp_cookies.clone();
                     egui::ComboBox::from_id_salt("ytck").selected_text(if cur.is_empty() { if en { "Off" } else { "Выключено" } } else { cur.as_str() }).show_ui(ui, |ui| {
@@ -1912,4 +1915,28 @@ fn stat_row(ui: &mut Ui, pal: &crate::theme::Pal, i: usize, name: &str, sub: &st
     if !sub.is_empty() { paint_trunc(ui, r.min + Vec2::new(26.0, 18.0), sub, FontId::proportional(11.5), pal.mut_, r.width() - 60.0, Align2::LEFT_TOP); }
     ui.painter().text(r.right_center() - Vec2::new(8.0, 0.0), Align2::RIGHT_CENTER, n.to_string(), FontId::proportional(12.0), pal.mut_);
     resp
+}
+
+/// Кривая эквалайзера: суммарная АЧХ всех полос с предусилением (то, что реально звучит), 20 Гц – 20 кГц, сетка ±12 дБ.
+fn eq_curve(ui: &mut Ui, pal: &crate::theme::Pal, eq: &[f32]) {
+    let mut g = [0.0f32; 10];
+    for (i, v) in eq.iter().take(10).enumerate() { g[i] = *v; }
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(w, 90.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 8.0, pal.panel);
+    let y_of = |db: f32| rect.center().y - (db / 12.0).clamp(-1.2, 1.2) * (rect.height() / 2.0 - 8.0);
+    for db in [-12.0f32, -6.0, 0.0, 6.0, 12.0] { p.line_segment([egui::pos2(rect.left(), y_of(db)), egui::pos2(rect.right(), y_of(db))], Stroke::new(if db == 0.0 { 1.0 } else { 0.5 }, pal.line)); }
+    let fs = 48000.0;
+    let mut bands = [crate::audio::Biquad::default(); 10];
+    for (i, fq) in crate::audio::EQ_FREQS.iter().enumerate() { bands[i].set(if i == 0 { 0 } else if i == 9 { 2 } else { 1 }, *fq, g[i], crate::audio::EQ_Q, fs); }
+    let pre = crate::audio::eq_preamp_db(&g, fs);
+    let pts: Vec<egui::Pos2> = (0..=120).map(|k| {
+        let t = k as f32 / 120.0;
+        let f = 20.0 * 1000f32.powf(t);
+        let db: f32 = bands.iter().map(|b| b.mag_db(f, fs)).sum::<f32>() + pre;
+        egui::pos2(rect.left() + t * rect.width(), y_of(db))
+    }).collect();
+    p.add(egui::Shape::line(pts, Stroke::new(2.0, pal.acc)));
+    if pre < -0.05 { p.text(rect.right_top() + Vec2::new(-8.0, 6.0), egui::Align2::RIGHT_TOP, format!("предусиление {pre:.1} дБ"), egui::FontId::proportional(11.0), pal.mut_); }
 }
