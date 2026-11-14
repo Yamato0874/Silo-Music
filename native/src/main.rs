@@ -51,6 +51,14 @@ fn copy_keys(db: &silo_core::db::Db) {
     }
 }
 
+/// Ключ YouTube, подставленный при сборке из переменной окружения SILO_EMBEDDED_YT_KEY (в репозитории и в обычных релизах его нет).
+/// Ставится только если свой ключ в базе пуст; из exe такой ключ можно вытащить, поэтому раздавать такую сборку публично нельзя.
+fn embed_keys(db: &silo_core::db::Db) {
+    let Some(k) = option_env!("SILO_EMBEDDED_YT_KEY").map(str::trim).filter(|k| !k.is_empty()) else { return };
+    let has: bool = db.conn.query_row("SELECT value FROM settings WHERE key=\"youtube_api_key\"", [], |r| r.get::<_, String>(0)).map(|v| !v.trim().is_empty()).unwrap_or(false);
+    if !has { let _ = db.conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(\"youtube_api_key\",?)", [k]); }
+}
+
 fn main() {
     platform::set_app_id();
     let testing = std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some() || std::env::var_os("SILO_SELFTEST").is_some();
@@ -75,6 +83,7 @@ fn main() {
     };
     // первый запуск — с чистого листа: из основной версии переносятся только ключи сервисов
     if fresh { copy_keys(&db); }
+    embed_keys(&db);
     let backend = Arc::new(backend::App { db: Mutex::new(db), music_dir: dir.join("Music") });
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio");
     let handle = rt.handle().clone();
