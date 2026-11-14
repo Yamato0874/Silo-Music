@@ -204,7 +204,13 @@ impl Enhancer {
             me.installing.store(false, Relaxed);
             match r {
                 Ok(()) => { me.log("готово"); me.set(|s| s.install = Install::Ready); }
-                Err(e) => { me.log(&format!("ОШИБКА: {e}")); me.set(|s| s.install = Install::Failed(e)); }
+                Err(e) => {
+                    me.log(&format!("ОШИБКА: {e}"));
+                    // отмена или сбой: кэш скачанных колёс и недокачанные файлы не оставляем (место на диске)
+                    let _ = std::fs::remove_dir_all(me.root.join("uvcache"));
+                    let _ = std::fs::remove_file(me.root.join("weights/pytorch_model.bin.part"));
+                    me.set(|s| s.install = Install::Failed(e));
+                }
             }
         }).ok();
     }
@@ -214,7 +220,7 @@ impl Enhancer {
     fn uv(&self) -> Command {
         let mut c = Command::new(self.root.join("tools/uv.exe"));
         c.env("UV_PYTHON_INSTALL_DIR", self.root.join("python")).env("UV_CACHE_DIR", self.root.join("uvcache"))
-            .env("UV_INDEX_STRATEGY", "unsafe-best-match").env("UV_LINK_MODE", "copy").env("UV_PYTHON_PREFERENCE", "only-managed")
+            .env("UV_INDEX_STRATEGY", "unsafe-best-match").env("UV_LINK_MODE", "hardlink").env("UV_PYTHON_PREFERENCE", "only-managed")
             .env("UV_NO_CONFIG", "1").env("UV_NO_PROGRESS", "1").creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null());
         c
     }
@@ -227,12 +233,16 @@ impl Enhancer {
         let finished = Arc::new(AtomicBool::new(false));
         { // слежение за размером папок и отменой
             let (me, f, w, st) = (self.clone(), finished.clone(), watch.to_vec(), step.to_string());
+            let expect_mb: u64 = if step.starts_with("3/6") { 5200 } else { 0 };
             std::thread::spawn(move || {
                 let t0 = std::time::Instant::now();
                 while !f.load(Relaxed) {
                     if me.cancelled() { crate::ytdlp::kill_tree(pid); break; }
+                    // считаем только кэш uv: venv ссылается на те же файлы (жёсткие ссылки), их размер дважды считать нельзя
                     let bytes: u64 = w.iter().map(|p| dir_size(p)).sum();
-                    me.step(&st, &format!("{} МБ, прошло {} мин", bytes / 1_048_576, t0.elapsed().as_secs() / 60), None);
+                    let mb = bytes / 1_048_576;
+                    let (detail, frac) = if expect_mb > 0 { (format!("распаковано {} из ≈ {} МБ, прошло {} мин", mb, expect_mb, t0.elapsed().as_secs() / 60), Some((mb as f32 / expect_mb as f32).min(0.99))) } else { (format!("{} МБ, прошло {} мин", mb, t0.elapsed().as_secs() / 60), None) };
+                    me.step(&st, &detail, frac);
                     std::thread::sleep(Duration::from_millis(1000));
                 }
             });
@@ -323,7 +333,7 @@ impl Enhancer {
             let mut c = self.uv();
             c.args(["pip", "install", "--python"]).arg(self.python())
                 .args(["torch==2.0.0+cu118", "torchaudio==2.0.1+cu118", "--index-url", "https://download.pytorch.org/whl/cu118", "--extra-index-url", "https://pypi.org/simple"]);
-            self.run_logged(c, "3/6 PyTorch (≈ 2,7 ГБ, самый долгий шаг)", &[root.join("uvcache"), root.join("venv")]).map_err(|e| format!("PyTorch: {e}"))?;
+            self.run_logged(c, "3/6 PyTorch (скачать ≈ 2,7 ГБ, на диске ≈ 5 ГБ, самый долгий шаг)", &[root.join("uvcache")]).map_err(|e| format!("PyTorch: {e}"))?;
         }
         ck(self)?;
         // 4. остальные пакеты
