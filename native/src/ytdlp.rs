@@ -91,7 +91,54 @@ pub fn find(custom: &str) -> Option<PathBuf> {
 fn cmd(exe: &str) -> Command {
     let mut c = Command::new(exe);
     c.creation_flags(CREATE_NO_WINDOW).stdin(Stdio::null());
+    with_proxy(&mut c);
     c
+}
+
+/// Прокси Windows (Настройки → Прокси, его ставят VPN-клиенты) или переменные HTTP(S)_PROXY.
+/// yt-dlp и генератор PO-токенов должны ходить в YouTube с одного адреса: иначе токен выдан на другой адрес и YouTube отвечает 403.
+fn system_proxy() -> Option<String> {
+    static P: OnceLock<Option<String>> = OnceLock::new();
+    P.get_or_init(|| {
+        for k in ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"] {
+            if let Ok(v) = std::env::var(k) { if !v.trim().is_empty() { return Some(v.trim().to_string()); } }
+        }
+        let key = "Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+        if reg_dword(key, "ProxyEnable") != Some(1) { return None; }
+        let s = reg_string(key, "ProxyServer")?;
+        // «host:port» или «http=host:port;https=host:port»
+        let one = if s.contains('=') {
+            s.split(';').find_map(|p| p.strip_prefix("https=")).or_else(|| s.split(';').find_map(|p| p.strip_prefix("http="))).map(str::to_string)?
+        } else { s };
+        let one = one.trim().to_string();
+        if one.is_empty() { return None; }
+        Some(if one.contains("://") { one } else { format!("http://{one}") })
+    }).clone()
+}
+fn with_proxy(c: &mut Command) {
+    if let Some(p) = system_proxy() {
+        c.env("HTTP_PROXY", &p).env("HTTPS_PROXY", &p).env("NO_PROXY", "localhost,127.0.0.1,::1,.local");
+    }
+}
+fn reg_raw(key: &str, name: &str, flags: u32) -> Option<Vec<u8>> {
+    use windows_sys::Win32::System::Registry::*;
+    let k: Vec<u16> = key.encode_utf16().chain(Some(0)).collect();
+    let n: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let mut buf = vec![0u8; 2048];
+    let mut len = buf.len() as u32;
+    let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, k.as_ptr(), n.as_ptr(), flags, std::ptr::null_mut(), buf.as_mut_ptr() as *mut _, &mut len) };
+    if r != 0 { return None; }
+    buf.truncate(len as usize);
+    Some(buf)
+}
+fn reg_dword(key: &str, name: &str) -> Option<u32> {
+    let b = reg_raw(key, name, windows_sys::Win32::System::Registry::RRF_RT_REG_DWORD)?;
+    (b.len() >= 4).then(|| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+fn reg_string(key: &str, name: &str) -> Option<String> {
+    let b = reg_raw(key, name, windows_sys::Win32::System::Registry::RRF_RT_REG_SZ)?;
+    let w: Vec<u16> = b.chunks_exact(2).map(|x| u16::from_le_bytes([x[0], x[1]])).take_while(|c| *c != 0).collect();
+    Some(String::from_utf16_lossy(&w))
 }
 
 /// yt-dlp лежит там, куда его поставили мы: в папке данных или рядом с программой.
@@ -134,7 +181,9 @@ fn pot_home() -> Option<PathBuf> {
 /// PO-токены выдаёт локальный сервер bgutil (127.0.0.1:4416), плагин yt-dlp находит его сам.
 fn media(exe: &str, attempt: usize) -> Command {
     let mut c = base(exe);
-    c.args(["--extractor-args", CLIENTS[attempt.min(2)]]);
+    // генератор токенов работает: мобильный клиент с PO-токеном надёжнее всех, его первым
+    let order: [usize; 3] = if POT.lock().map(|p| p.is_some()).unwrap_or(false) { [1, 0, 2] } else { [0, 1, 2] };
+    c.args(["--extractor-args", CLIENTS[order[attempt.min(2)]]]);
     c
 }
 
@@ -146,9 +195,10 @@ pub fn start_pot() {
     if ONCE.set(()).is_err() { return; }
     let (Some(node), Some(home)) = (node_path(), pot_home()) else { return };
     let mut c = Command::new(node);
+    with_proxy(&mut c);
     c.creation_flags(CREATE_NO_WINDOW).current_dir(&home).arg(home.join("build").join("main.js")).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     match c.spawn() {
-        Ok(ch) => { kill_with_us(&ch); crate::app::diag("генератор PO-токенов запущен"); *POT.lock().unwrap() = Some(ch); }
+        Ok(ch) => { kill_with_us(&ch); crate::app::diag(&format!("генератор PO-токенов запущен{}", system_proxy().map(|p| format!(", прокси {p}")).unwrap_or_default())); *POT.lock().unwrap() = Some(ch); }
         Err(e) => crate::app::diag(&format!("генератор PO-токенов не запустился: {e}")),
     }
 }
@@ -238,6 +288,15 @@ pub fn audio_pipe(exe: &str, vid: &str) -> Result<Child, String> {
     Ok(child)
 }
 
+/// Ошибка, которую повтор не исправит: видео удалено, закрыто или недоступно в стране.
+pub fn is_permanent(err: &str) -> bool {
+    ["Video unavailable", "no longer available", "not made this video available in your country", "Private video", "This video has been removed", "copyright claim", "members-only", "Join this channel"].iter().any(|k| err.contains(k))
+}
+static DEAD: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+/// Видео, которые YouTube не отдаст никогда: при подготовке наперёд запоминаем и пропускаем их сразу, без попыток.
+pub fn mark_dead(vid: &str) { DEAD.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(vid.to_string()); }
+pub fn is_dead(vid: &str) -> bool { DEAD.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|s| s.contains(vid)) }
+
 /// Скачать звуковую дорожку в файл (для заранее подготовленных треков).
 pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), String> {
     let url = format!("https://www.youtube.com/watch?v={vid}");
@@ -255,6 +314,7 @@ pub fn audio_file(exe: &str, vid: &str, out: &std::path::Path) -> Result<(), Str
         if o.status.success() { ok = true; break; }
         err = last_line(&o.stderr);
         crate::app::diag(&format!("подготовка {vid}, попытка {}: {err}", attempt + 1));
+        if is_permanent(&err) { mark_dead(vid); break; }
     }
     if !ok { let _ = std::fs::remove_file(out); return Err(err); }
     if std::fs::metadata(out).map(|m| m.len()).unwrap_or(0) < 10_000 { let _ = std::fs::remove_file(out); return Err("yt-dlp: файл пустой".into()); }
