@@ -1246,6 +1246,11 @@ impl SiloApp {
                             if r.clicked() && enabled { self.prefs.upscale = v; }
                         }
                     });
+                    ui.label(RichText::new(match self.prefs.upscale {
+                        1 => if en { "Weak: band up to 20.5 kHz, comparable to MP3 ≈256–320 kbps (equivalent by bandwidth, not the real stream bitrate)" } else { "Слабый: полоса до 20,5 кГц, по частотам как MP3 ≈256–320 кбит/с (эквивалент по полосе, не настоящий битрейт потока)" },
+                        2 => if en { "Medium: Apollo, band up to 22 kHz, comparable to MP3 ≈320 kbps (equivalent by bandwidth, not the real stream bitrate)" } else { "Средний: Apollo, полоса до 22 кГц, по частотам как MP3 ≈320 кбит/с (эквивалент по полосе, не настоящий битрейт потока)" },
+                        _ => if en { "Off: the sound is exactly what the source gives (YouTube usually ≈128–160 kbps)" } else { "Нет: звук ровно такой, как отдаёт источник (у YouTube обычно ≈128–160 кбит/с)" },
+                    }).color(pal.mut_).size(12.0));
                     sw(ui, &pal, &mut self.prefs.normalize, crate::i18n::tr("normalize", en), crate::i18n::tr("normalizeHint", en));
                     sw(ui, &pal, &mut self.prefs.eq_on, crate::i18n::tr("eqOn", en), "");
                     let on = self.prefs.eq_on;
