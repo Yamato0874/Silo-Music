@@ -16,9 +16,47 @@ const STEPS: [(&str, f64); 20] = [
     ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("09b-ai-missing", 2.0), ("09c-ai-installing", 2.0), ("09d-ai-ready", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 2.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0), ("16-onb-eq", 2.0), ("17-onb-genres", 2.0),
 ];
 
+/// Медленный кадр (>120 мс) пишем в diag.log: так видно, что тормозит у пользователя. В замере SILO_BENCH=wave ещё и копим максимум.
+pub fn slow(what: &str, t0: std::time::Instant) {
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    BENCH_MAX.with(|m| { let mut m = m.borrow_mut(); if ms > *m { *m = ms; } });
+    if ms > 120.0 { crate::app::diag(&format!("медленный кадр: {what} {ms:.0} мс")); }
+}
+pub struct SlowGuard(pub std::time::Instant, pub &'static str);
+impl Drop for SlowGuard { fn drop(&mut self) { FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed); slow(self.1, self.0); } }
+pub static FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn take_frames() -> u64 { FRAMES.swap(0, std::sync::atomic::Ordering::Relaxed) }
+thread_local! { static BENCH_MAX: std::cell::RefCell<f64> = const { std::cell::RefCell::new(0.0) }; }
+fn take_max() -> f64 { BENCH_MAX.with(|m| std::mem::take(&mut *m.borrow_mut())) }
+
+/// Замер волны: SILO_BENCH=wave (SILO_FAKE_YTDLP — путь к yt-dlp): запуск «Эхо», затем 6 пропусков раз в 6 с; в stderr — худший кадр и время до звука.
+fn bench_wave(app: &mut SiloApp, ctx: &egui::Context) {
+    let t = ctx.input(|i| i.time);
+    let st = app.bench_step;
+    let log = |app: &SiloApp, what: &str| eprintln!("[wave t={t:.1}] {what}: route={} playing={} pos={:.1} queue={} pos#={} src={}", app.route_name(), app.ps.playing, app.ps.pos, app.queue.len(), app.pos, app.last_src);
+    match st {
+        0 if t > 1.0 => {
+            app.prefs.onboarded = true; app.prefs.volume = 0.0; app.set_volume_live(0.0);
+            app.prefs.yt_mode = "ytdlp".into(); app.prefs.ytdlp_path = std::env::var("SILO_FAKE_YTDLP").unwrap_or_default();
+            app.prefs.tastes = vec!["rock".into(), "indie".into()];
+            if let Ok(u) = std::env::var("SILO_UPSCALE") { app.prefs.upscale = u.parse().unwrap_or(0); }
+            app.tab = Tab::Echo; app.start_wave(None, None); app.bench_step = 1; app.selftest_at = t; take_max(); take_frames(); log(app, "wave start");
+        }
+        1 if app.ps.playing && app.ps.pos > 0.3 => { eprintln!("[wave] первый звук через {:.1} с, худший кадр {:.0} мс", t - app.selftest_at, take_max()); app.bench_step = 2; app.selftest_at = t; take_frames(); }
+        1 if t - app.selftest_at > 40.0 => { log(app, "NO SOUND"); std::process::exit(2); }
+        s @ 2..=13 if s % 2 == 0 && t - app.selftest_at > 6.0 => { eprintln!("[wave] кадров за {:.0} с: {}", t - app.selftest_at, take_frames()); log(app, "skip"); take_max(); app.skip(1); app.bench_step += 1; app.selftest_at = t; }
+        s @ 3..=13 if s % 2 == 1 && app.ps.playing && app.ps.pos > 0.3 && app.ps.pos < 5.0 => { eprintln!("[wave] пропуск {}: звук через {:.2} с, худший кадр {:.0} мс, {}", s / 2, t - app.selftest_at, take_max(), app.last_src); app.bench_step += 1; app.selftest_at = t; take_frames(); }
+        s @ 3..=13 if s % 2 == 1 && t - app.selftest_at > 20.0 => { eprintln!("[wave] пропуск {}: НЕТ ЗВУКА 20 с, худший кадр {:.0} мс", s / 2, take_max()); app.bench_step += 1; app.selftest_at = t; }
+        14 => { eprintln!("[wave] конец"); std::process::exit(0); }
+        _ => {}
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(250));
+}
+
 /// Замеры: SILO_BENCH=preview|youtube — найти «кино группа крови» и включить превью (свой движок) или полный трек (официальный плеер), звук на нуле.
 pub fn bench(app: &mut SiloApp, ctx: &egui::Context) {
     let Some(mode) = std::env::var("SILO_BENCH").ok() else { return };
+    if mode == "wave" { bench_wave(app, ctx); return; }
     let t = ctx.input(|i| i.time);
     let step = app.bench_step;
     if step == 0 && t > 1.0 { app.prefs.volume = 0.0; app.set_volume_live(0.0); app.tab = Tab::Search; app.demo_query("кино группа крови"); app.bench_step = 1; }

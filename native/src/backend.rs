@@ -129,21 +129,11 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
     let mut fresh = 0;
     // сами любимые исполнители: их топ на YouTube (поиск один раз на исполнителя, кэш 30 дней)
     let mut out: Vec<Track> = vec![];
-    for a in seeds.iter().take(nfav.min(10)) {
-        let ck = format!("yt:art:{}", a.to_lowercase());
-        let hit: Option<Vec<Track>> = db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
-        let v = match hit {
-            Some(v) => v,
-            None => {
-                if fresh >= 4 || yt_blocked() { continue; }
-                fresh += 1;
-                yt_note(s);
-                let Ok(v) = ytw::search(key, a, 10).await.map_err(yt_err) else { continue };
-                let v = ytw::keep_music(key, v).await.unwrap_or_default();
-                let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
-                v
-            }
-        };
+    let favs: Vec<String> = seeds.iter().take(nfav.min(10)).cloned().collect();
+    let got = yt_artist_batch(s, key, &favs, 4).await;
+    fresh += got.1;
+    for a in &favs {
+        let Some(v) = got.0.get(&a.to_lowercase()) else { continue };
         // не всегда первые три из десяти: иначе волна по любимому исполнителю крутит одни и те же песни
         let rot = if v.is_empty() { 0 } else { (n / 11 + a.len()) % v.len() };
         out.extend(v.iter().cycle().skip(rot).take(3.min(v.len())).cloned());
@@ -158,7 +148,7 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
         let id = match cached {
             Some(x) => x,
             None => {
-                if mb_calls > 0 { std::thread::sleep(std::time::Duration::from_millis(1100)); } // MusicBrainz: не чаще 1 запроса в секунду
+                if mb_calls > 0 { tokio::time::sleep(std::time::Duration::from_millis(1100)).await; } // MusicBrainz: не чаще 1 запроса в секунду
                 mb_calls += 1;
                 let x = lbradio::mbid(a).await.ok().flatten().unwrap_or_default();
                 let _ = db(s).cache_put(&mk, &x);
@@ -172,27 +162,38 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
         for x in list { if !seeds.iter().any(|y| y.eq_ignore_ascii_case(&x)) && !sim.iter().any(|y| y.eq_ignore_ascii_case(&x)) { sim.push(x); } }
     }
     // похожих берём по кругу; новых (без кэша) ищем не больше 3 сверх любимых, чтобы беречь лимит поисков
-    for k in 0..sim.len().min(20) {
-        let a = &sim[(n / 13 + k * 3) % sim.len()];
-        let ck = format!("yt:art:{}", a.to_lowercase());
-        let hit: Option<Vec<Track>> = db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str(&j).ok());
-        let v = match hit {
-            Some(v) => v,
-            None => {
-                if fresh >= 7 || yt_blocked() { continue; }
-                fresh += 1;
-                yt_note(s);
-                let Ok(v) = ytw::search(key, a, 10).await.map_err(yt_err) else { continue };
-                let v = ytw::keep_music(key, v).await.unwrap_or_default();
-                let _ = db(s).cache_put(&ck, &serde_json::to_string(&v).unwrap_or_default());
-                v
-            }
-        };
+    let sims: Vec<String> = (0..sim.len().min(20)).map(|k| sim[(n / 13 + k * 3) % sim.len()].clone()).collect();
+    let got = yt_artist_batch(s, key, &sims, 7usize.saturating_sub(fresh)).await;
+    for a in &sims {
+        let Some(v) = got.0.get(&a.to_lowercase()) else { continue };
         // не всегда первые три из десяти: иначе волна по любимому исполнителю крутит одни и те же песни
         let rot = if v.is_empty() { 0 } else { (n / 11 + a.len()) % v.len() };
         out.extend(v.iter().cycle().skip(rot).take(3.min(v.len())).cloned());
     }
     out
+}
+/// Треки исполнителей на YouTube: из кэша (30 дней), а новых — не больше max_fresh, и все новые поиски идут одновременно
+/// (через yt-dlp каждый поиск — отдельный процесс на 2–4 с; по очереди волна собиралась больше 10 с).
+async fn yt_artist_batch(s: &App, key: &str, names: &[String], max_fresh: usize) -> (HashMap<String, Vec<Track>>, usize) {
+    let mut out: HashMap<String, Vec<Track>> = HashMap::new();
+    let mut miss: Vec<String> = vec![];
+    for a in names {
+        let ck = format!("yt:art:{}", a.to_lowercase());
+        match db(s).cache_get(&ck, 30 * DAY).ok().flatten().and_then(|j| serde_json::from_str::<Vec<Track>>(&j).ok()) {
+            Some(v) => { out.insert(a.to_lowercase(), v); }
+            None => if miss.len() < max_fresh && !yt_blocked() && !miss.iter().any(|x| x.eq_ignore_ascii_case(a)) { miss.push(a.clone()); },
+        }
+    }
+    let n = miss.len();
+    let res = futures::future::join_all(miss.into_iter().map(|a| async move {
+        yt_note(s);
+        let v = ytw::search(key, &a, 10).await.map_err(yt_err).ok()?;
+        let v = ytw::keep_music(key, v).await.unwrap_or_default();
+        let _ = db(s).cache_put(&format!("yt:art:{}", a.to_lowercase()), &serde_json::to_string(&v).unwrap_or_default());
+        Some((a.to_lowercase(), v))
+    })).await;
+    out.extend(res.into_iter().flatten());
+    (out, n)
 }
 pub async fn yt_genre_core(s: &App, key: &str, text: &str, region: &str) -> R<Vec<Track>> {
     // лимит поисков исчерпан или плейлист не нашёлся: берём популярную музыку (1 ед., другой лимит)

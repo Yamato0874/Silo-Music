@@ -264,7 +264,7 @@ pub fn bars(ui: &Ui, pal: &Pal, rect: Rect, playing: bool) {
         let x = rect.left() + rect.width() * (0.2 + 0.3 * k as f32);
         p.rect_filled(Rect::from_min_max(Pos2::new(x - 1.5, rect.bottom() - h), Pos2::new(x + 1.5, rect.bottom())), CornerRadius::same(1), pal.acc);
     }
-    if playing { repaint(ui.ctx(), 60); }
+    if playing { repaint(ui.ctx(), 150); }
 }
 
 // ---------- обложки: загрузка по сети в фоне, уменьшение, кэш текстур ----------

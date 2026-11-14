@@ -285,7 +285,7 @@ pub fn tr(k: &str, en: bool) -> &'static str {
         "stopEcho" => ("Остановить Эхо", "Stop Echo"),
         "echoPitch" => ("Бесконечный поток под ваш вкус. Следующие треки подгружаются заранее, обновлять ничего не нужно. Лайки, дизлайки и пропуски делают подборку точнее.", "An endless stream tuned to your taste. Next tracks load ahead of time, nothing to refresh. Likes, dislikes and skips make it more accurate."),
         "upNext" => ("Дальше в Эхо", "Up next in Echo"),
-        "echoEmpty" => ("Не удалось собрать подборку: проверьте ключи сервисов в Настройках", "Could not build a mix: check the service keys in Settings"),
+        "echoEmpty" => ("Не удалось собрать подборку, попробуйте ещё раз через минуту", "Could not build a mix, try again in a minute"),
         "recent" => ("Недавно слушали", "Recently played"),
         "likedShelf" => ("Вам понравилось", "You liked"),
         "byGenre" => ("Волна по жанру", "Wave by genre"),

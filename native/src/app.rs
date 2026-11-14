@@ -198,6 +198,8 @@ pub struct SiloApp {
     pub yt_err_toast_at: f64,
     /// треки YouTube, которые yt-dlp не смог отдать: играют официальным плеером
     force_embed: HashSet<String>,
+    /// YouTube ответил бот-проверкой: до этого момента звук YouTube сразу идёт через официальный плеер (без ожидания yt-dlp и без плашек)
+    ytdlp_pause_until: f64,
 }
 
 impl SiloApp {
@@ -219,7 +221,7 @@ impl SiloApp {
         let cache = crate::cache::Cache::new(&local.join("cache"));
         let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
-            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(),
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(), ytdlp_pause_until: 0.0,
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,
@@ -353,7 +355,9 @@ impl SiloApp {
             return;
         }
         let n = self.next_pos(true);
-        if n >= 0 { self.pos = n; self.cur_key.clear(); }
+        if n >= 0 { self.pos = n; self.cur_key.clear(); return; }
+        // конец очереди волны: «Далее» не должен молчать, пока подгружается следующая порция
+        if self.prefs.autoplay || self.wave { let at = self.order.len() as isize; self.wave_busy = false; self.extend_wave(Some(at)); }
     }
     fn ended(&mut self) {
         self.record(1.0);
@@ -442,8 +446,10 @@ impl SiloApp {
         let arts = artists.unwrap_or_else(|| if seed.is_some() { vec![] } else { self.prefs.artists.clone() });
         self.wave_starting = true;
         let f = self.echo_fut(&tastes, &arts, &self.prefs.diversity.clone());
-        self.spawn(f, |a, r| {
+        let t0 = std::time::Instant::now();
+        self.spawn(f, move |a, r| {
             a.wave_starting = false;
+            diag(&format!("волна собрана за {:.1} с: {} треков", t0.elapsed().as_secs_f64(), r.as_ref().map(|o| o.tracks.len()).unwrap_or(0)));
             match r {
                 Ok(o) if !o.tracks.is_empty() => { a.wave = true; a.play(o.tracks, 0, true); }
                 Ok(_) => a.err(a.t("echoEmpty")),
@@ -559,13 +565,14 @@ impl SiloApp {
     fn src_for(&self, t: &Track) -> Option<(Src, bool)> {
         let key = crate::cache::key(&t.id);
         let file = |p: std::path::PathBuf| Src::File(p.to_string_lossy().to_string());
-        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || self.force_embed.contains(&t.id)));
+        let paused = self.ctx.input(|i| i.time) < self.ytdlp_pause_until;
+        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || self.force_embed.contains(&t.id) || (paused && self.cache.orig(&key).is_none())));
         if !embed_only {
             if self.prefs.upscale == 2 && self.enh.ready() { if let Some(p) = self.cache.enhanced(&key) { return Some((file(p), true)); } }
             if t.source != "local" { if let Some(p) = self.cache.orig(&key) { return Some((file(p), false)); } }
         }
         match t.source.as_str() {
-            "youtube" if !self.force_embed.contains(&t.id) => self.ytdlp_exe().map(|exe| (Src::Ytdlp(t.id.trim_start_matches("youtube:").to_string(), exe), false)),
+            "youtube" if !self.force_embed.contains(&t.id) && !paused => self.ytdlp_exe().map(|exe| (Src::Ytdlp(t.id.trim_start_matches("youtube:").to_string(), exe), false)),
             "youtube" => None,
             "soundcloud" => None,
             "local" => Some((Src::File(t.audio.clone()), false)),
@@ -580,6 +587,7 @@ impl SiloApp {
         if matches!(t.source.as_str(), "local" | "soundcloud" | "deezer") || self.cache.orig(&key).is_some() { return; }
         let (cache, ctx) = (self.cache.clone(), self.ctx.clone());
         if t.source == "youtube" {
+            if now < self.ytdlp_pause_until { return; }
             let Some(exe) = self.ytdlp_exe() else { return };
             if !cache.begin(&key, now) { return; }
             let vid = t.id.trim_start_matches("youtube:").to_string();
@@ -608,7 +616,7 @@ impl SiloApp {
         self.prefetch_at = now;
         if self.pos < 0 || self.queue.is_empty() { return; }
         let p = self.pos as usize;
-        let ahead: Vec<Track> = (1..=2).filter_map(|k| self.order.get(p + k).and_then(|i| self.queue.get(*i)).cloned()).collect();
+        let ahead: Vec<Track> = (1..=3).filter_map(|k| self.order.get(p + k).and_then(|i| self.queue.get(*i)).cloned()).collect();
         let mut keep: HashSet<String> = ahead.iter().map(|t| crate::cache::key(&t.id)).collect();
         if let Some(c) = self.cur() { keep.insert(crate::cache::key(&c.id)); }
         for t in &ahead { self.ensure_cached(t, now); }
@@ -666,6 +674,7 @@ impl SiloApp {
                         if let Some(p) = self.cache.orig(&crate::cache::key(&c.id)) { let _ = std::fs::remove_file(p); }
                         // пользователю ничего не показываем: трек просто играет через официальный плеер, причина в журнале
                         diag(&format!("yt-dlp не отдал звук ({}): {m}", c.id));
+                        if m.contains("not a bot") || m.contains("Sign in to confirm") { self.ytdlp_pause_until = now + 600.0; diag("YouTube просит подтвердить вход: 10 минут треки YouTube сразу играют официальным плеером"); }
                         if self.prefs.show_errors && now - self.yt_err_toast_at > 120.0 {
                             self.yt_err_toast_at = now;
                             let short: String = m.chars().take(70).collect();

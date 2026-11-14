@@ -182,7 +182,9 @@ impl SiloApp {
             let t = &tracks[i];
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 56.0), Sense::click_and_drag());
             if !ui.is_rect_visible(rect) { continue; }
-            let hov = resp.hovered() || resp.context_menu_opened();
+            // наведение по положению курсора, а не по виджету строки: иначе, когда курсор на кнопке лайка (она поверх строки),
+            // строка теряет наведение, кнопки исчезают на следующем кадре и нажатие не срабатывает
+            let hov = ui.rect_contains_pointer(rect) || resp.context_menu_opened();
             let active = t.id == cur_id;
             let r = ratings.get(&t.id).copied().unwrap_or(0);
             let p = ui.painter().clone();

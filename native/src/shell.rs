@@ -34,13 +34,16 @@ impl eframe::App for SiloApp {
         if self.demo.is_some() { ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden); }
         // в фоне (игра, другое окно) почти не рисуем
         let bg = ctx.input(|i| !i.viewport().focused.unwrap_or(true) || i.viewport().minimized.unwrap_or(false));
-        crate::widgets::BG.store(bg && self.demo.is_none(), std::sync::atomic::Ordering::Relaxed);
+        crate::widgets::BG.store(bg && self.demo.is_none() && std::env::var_os("SILO_BENCH_FG").is_none(), std::sync::atomic::Ordering::Relaxed);
+        let t0 = std::time::Instant::now();
         self.tick();
+        crate::demo::slow("tick", t0);
         self.plat.set_state(self.ps.playing, self.ps.pos);
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let _g = crate::demo::SlowGuard(std::time::Instant::now(), "ui");
         crate::demo::frame(self, &ctx);
         self.hotkeys(&ctx);
         let pal = self.pal;
@@ -330,7 +333,8 @@ impl SiloApp {
         paint_track(ui, &pal, bar, f, resp.hovered() || resp.dragged(), resp.id);
         ui.painter().text(Pos2::new(center.left() + tw - 8.0, by), Align2::RIGHT_CENTER, fmt_time(shown), FontId::proportional(12.0), pal.mut_);
         ui.painter().text(Pos2::new(center.right() - tw + 8.0, by), Align2::LEFT_CENTER, fmt_time(dur), FontId::proportional(12.0), pal.mut_);
-        if ps.playing { repaint(ui.ctx(), 40); }
+        // всё окно перерисовывается целиком: 4 кадра в секунду для полосы прогресса хватает (было 25, это четверть ядра)
+        if ps.playing { repaint(ui.ctx(), 250); }
     }
 
     pub fn rate_buttons(&mut self, ui: &mut Ui, t: &Track) {
@@ -431,7 +435,8 @@ impl SiloApp {
             let mut act: Option<(u8, usize, usize)> = None;
             for (i, t) in up.iter().enumerate().take(300) {
                 let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 50.0), Sense::click_and_drag());
-                let hov = resp.hovered();
+                // наведение по курсору: кнопка «убрать» лежит поверх строки и иначе исчезала бы под курсором
+                let hov = ui.rect_contains_pointer(r);
                 if hov { ui.painter().rect_filled(r, CornerRadius::same(8), pal.hover()); }
                 resp.dnd_set_drag_payload(i);
                 if let Some(from) = resp.dnd_release_payload::<usize>() { act = Some((1, *from, i)); }
