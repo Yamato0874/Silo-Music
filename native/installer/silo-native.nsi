@@ -21,8 +21,8 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "Silo Player · native"
 
-!define MUI_ICON "..\..\src-tauri\icons\icon.ico"
-!define MUI_UNICON "..\..\src-tauri\icons\icon.ico"
+!define MUI_ICON "..\assets\icon.ico"
+!define MUI_UNICON "..\assets\icon.ico"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "Запустить Silo Player (native)"

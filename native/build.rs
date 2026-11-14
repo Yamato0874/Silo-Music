@@ -3,7 +3,7 @@ fn main() {
     #[cfg(windows)]
     {
         let mut r = winresource::WindowsResource::new();
-        r.set_icon("../src-tauri/icons/icon.ico");
+        r.set_icon("assets/icon.ico");
         r.set("ProductName", "Silo Player Native");
         r.set("FileDescription", "Silo Player (native)");
         r.set("CompanyName", "Silo");
