@@ -20,3 +20,5 @@ v.err
 .vscode/
 .idea/
 Thumbs.db
+target-native/
+native/installer/bin/

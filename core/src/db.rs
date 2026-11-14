@@ -34,6 +34,10 @@ impl Db {
         let to = dir.join(format!("silo-{tag}.db"));
         if to.exists() { return; }
         let _ = std::fs::copy(path, &to);
+        // ключи сервисов в резервные копии не попадают
+        if let Ok(c) = Connection::open(&to) {
+            let _ = c.execute_batch("DELETE FROM settings WHERE key IN ('youtube_api_key','soundcloud_client_id','soundcloud_client_secret','jamendo_client_id','google_cse_key','google_cse_cx','listenbrainz_token'); VACUUM;");
+        }
         if let Ok(rd) = std::fs::read_dir(&dir) {
             let mut v: Vec<_> = rd.filter_map(|e| e.ok()).filter_map(|e| { let m = e.metadata().ok()?.modified().ok()?; Some((m, e.path())) }).collect();
             v.sort_by(|a, b| b.0.cmp(&a.0));
@@ -59,6 +63,7 @@ impl Db {
              CREATE TABLE IF NOT EXISTS seen(track_id TEXT NOT NULL, key TEXT NOT NULL, pop REAL NOT NULL, PRIMARY KEY(track_id, key));
              CREATE INDEX IF NOT EXISTS seen_key_pop ON seen(key, pop);
              CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, ts INTEGER NOT NULL, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS yt_match(track_id TEXT PRIMARY KEY, video_id TEXT NOT NULL, via TEXT NOT NULL, ts INTEGER NOT NULL);
              CREATE TABLE IF NOT EXISTS ratings(
                track_id TEXT PRIMARY KEY, value INTEGER NOT NULL, tags TEXT NOT NULL,
                ts INTEGER NOT NULL DEFAULT (strftime('%s','now')));",
@@ -70,7 +75,9 @@ impl Db {
         // индексы под Эхо, историю и итоги; кэш старше 31 дня не нужен (правила YouTube API — 30 дней)
         let _ = conn.execute_batch("CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts); CREATE INDEX IF NOT EXISTS plays_track ON plays(track_id); CREATE INDEX IF NOT EXISTS ratings_ts ON ratings(ts);
             DELETE FROM cache WHERE ts < strftime('%s','now') - 31*86400; PRAGMA optimize;");
-        Ok(Self { conn })
+        let db = Self { conn };
+        db.migrate_secrets();
+        Ok(db)
     }
 
     /// Кэш ответов внешних API (экономия квоты YouTube). max_age — секунды.
@@ -78,23 +85,53 @@ impl Db {
         let min_ts = now_secs() as i64 - max_age;
         Ok(self.conn.query_row("SELECT value FROM cache WHERE key=? AND ts>=?", params![key, min_ts], |r| r.get(0)).optional()?)
     }
+    /// Найденное видео YouTube для трека Deezer: повторное воспроизведение не тратит квоту.
+    /// Найденное через YouTube Data API живёт 30 дней (правила API), через Piped/Invidious — без срока.
+    pub fn yt_match_get(&self, track_id: &str) -> Result<Option<String>> {
+        let min_ts = now_secs() as i64 - 30 * 86400;
+        Ok(self.conn.query_row("SELECT video_id FROM yt_match WHERE track_id=? AND (via<>'api' OR ts>=?)", params![track_id, min_ts], |r| r.get(0)).optional()?)
+    }
+    pub fn yt_match_put(&self, track_id: &str, video_id: &str, via: &str) -> Result<()> {
+        self.conn.execute("INSERT OR REPLACE INTO yt_match(track_id,video_id,via,ts) VALUES(?,?,?,?)", params![track_id, video_id, via, now_secs() as i64])?;
+        Ok(())
+    }
     pub fn cache_put(&self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO cache(key,ts,value) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET ts=excluded.ts, value=excluded.value",
             params![key, now_secs() as i64, value],
         )?;
         // не даём кэшу расти бесконечно
-        self.conn.execute("DELETE FROM cache WHERE ts < ?", [now_secs() as i64 - 14 * 86400])?;
+        self.conn.execute("DELETE FROM cache WHERE ts < ?", [now_secs() as i64 - 31 * 86400])?;
         Ok(())
     }
 
+    /// Ключи сервисов хранятся зашифрованными (DPAPI) и расшифровываются при чтении.
+    /// Если расшифровать не удалось (база перенесена на другой ПК или учётную запись), ключ считается пустым, запись в базе не трогается.
+    /// Миграция: открытые ключи из старых версий перешифровываются при первом запуске.
+    /// Каждый ключ проверяется обратной расшифровкой; при сбое остаётся как был, данные не теряются.
+    fn migrate_secrets(&self) {
+        for k in crate::secret::SECRET_KEYS {
+            let raw: Option<String> = self.conn.query_row("SELECT value FROM settings WHERE key=?", [k], |r| r.get(0)).optional().ok().flatten();
+            let Some(v) = raw.filter(|v| !v.is_empty() && !crate::secret::is_protected(v)) else { continue };
+            if let Some(p) = crate::secret::protect(&v).filter(|p| crate::secret::unprotect(p).as_deref() == Some(v.as_str())) {
+                let _ = self.conn.execute("UPDATE settings SET value=? WHERE key=?", [p.as_str(), k]);
+            }
+        }
+    }
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        Ok(self
-            .conn
-            .query_row("SELECT value FROM settings WHERE key=?", [key], |r| r.get(0))
-            .optional()?)
+        let v: Option<String> = self.conn.query_row("SELECT value FROM settings WHERE key=?", [key], |r| r.get(0)).optional()?;
+        Ok(match v {
+            Some(x) if crate::secret::is_secret(key) => Some(crate::secret::unprotect(&x).unwrap_or_default()),
+            other => other,
+        })
     }
     pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let enc;
+        let value = if crate::secret::is_secret(key) {
+            // шифруем, только если обратная расшифровка даёт то же самое; иначе храним как есть
+            enc = crate::secret::protect(value).filter(|p| crate::secret::unprotect(p).as_deref() == Some(value));
+            enc.as_deref().unwrap_or(value)
+        } else { value };
         self.conn.execute(
             "INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             [key, value],
@@ -337,6 +374,23 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn secrets_migrate_and_read() {
+        let d = Db::memory().unwrap();
+        d.conn.execute("INSERT INTO settings(key,value) VALUES('youtube_api_key','plain-key')", []).unwrap();
+        d.migrate_secrets();
+        assert_eq!(d.get_setting("youtube_api_key").unwrap().as_deref(), Some("plain-key"));
+        d.set_setting("youtube_api_key", "new-key").unwrap();
+        assert_eq!(d.get_setting("youtube_api_key").unwrap().as_deref(), Some("new-key"));
+        let raw: String = d.conn.query_row("SELECT value FROM settings WHERE key='youtube_api_key'", [], |r| r.get(0)).unwrap();
+        if cfg!(windows) { assert!(raw.starts_with("dpapi:")); }
+    }
+    #[test]
+    fn yt_match_roundtrip() {
+        let d = Db::memory().unwrap();
+        d.yt_match_put("deezer:1", "vid", "api").unwrap();
+        assert_eq!(d.yt_match_get("deezer:1").unwrap().as_deref(), Some("vid"));
+    }
     pub fn track(id: &str, tags: &[&str]) -> Track {
         Track {
             id: id.into(), source: "jamendo".into(), kind: "music".into(), url: "".into(), name: "n".into(), artist: "a".into(), album: "".into(), image: "".into(),

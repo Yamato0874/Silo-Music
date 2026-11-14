@@ -1,0 +1,202 @@
+[
+ [
+  "karaoke",
+  "Караоке",
+  "Karaoke"
+ ],
+ [
+  "karaokeHint",
+  "Бегущий текст поверх клипа или обложки (K)",
+  "Scrolling lyrics over the video or cover (K)"
+ ],
+ [
+  "ytMode",
+  "Как играть YouTube",
+  "How YouTube plays"
+ ],
+ [
+  "ytModeEmbed",
+  "Чистый YouTube (официальный плеер)",
+  "Pure YouTube (official player)"
+ ],
+ [
+  "ytModeEmbedHint",
+  "Встроенный плеер YouTube в окне приложения, по правилам YouTube. Эквалайзер и кроссфейд на него не действуют.",
+  "The embedded YouTube player inside the app, per YouTube rules. The equalizer and crossfade do not apply to it."
+ ],
+ [
+  "ytModeDlp",
+  "Библиотека yt-dlp (основной режим)",
+  "yt-dlp library (main mode)"
+ ],
+ [
+  "ytModeDlpHint",
+  "Поиск, звук и клип идут через yt-dlp и играют в собственном движке: не тратится квота поисков YouTube API, работают эквалайзер, кроссфейд, визуализатор, клип в окне.",
+  "Search, audio and video go through yt-dlp and play in the built-in engine: no YouTube API search quota is used; equalizer, crossfade, visualizer and the video work."
+ ],
+ [
+  "ytDlpWarn",
+  "Этот режим нарушает условия YouTube (получение контента не через их плеер; правила API запрещают отделять звук от видео, поэтому Google может отключить ваш ключ API). Он хрупкий: YouTube регулярно ломает такие инструменты, yt-dlp нужно обновлять, возможны капчи и блокировки по IP. Включайте, только если у вас есть на это право.",
+  "This mode breaks YouTube's terms (content is fetched outside their player; the API policies forbid separating audio from video, so Google may disable your API key). It is fragile: YouTube regularly breaks such tools, yt-dlp needs updates, CAPTCHAs and IP blocks are possible. Turn it on only if you have the right to do so."
+ ],
+ [
+  "ytDlpPath",
+  "Путь к yt-dlp.exe (пусто = искать рядом с программой и в PATH)",
+  "Path to yt-dlp.exe (empty = look next to the app and in PATH)"
+ ],
+ [
+  "ytDlpFound",
+  "yt-dlp найден",
+  "yt-dlp found"
+ ],
+ [
+  "ytDlpMissing",
+  "yt-dlp не найден: укажите путь или положите yt-dlp.exe рядом с программой",
+  "yt-dlp not found: set the path or put yt-dlp.exe next to the app"
+ ],
+ [
+  "ytDlpCheck",
+  "Проверить",
+  "Check"
+ ],
+ [
+  "ytDlpVideo",
+  "Подтягивать видео клипа (в режиме без плеера)",
+  "Fetch the music video (no-player mode)"
+ ],
+ [
+  "ytDlpFail",
+  "yt-dlp не смог получить поток",
+  "yt-dlp could not get the stream"
+ ],
+ [
+  "video",
+  "Видео",
+  "Video"
+ ],
+ [
+  "videoHint",
+  "Клип в окне (V)",
+  "Video in the window (V)"
+ ],
+ [
+  "dataImport",
+  "Данные из основной версии",
+  "Data from the main version"
+ ],
+ [
+  "dataImportHint",
+  "Нативная версия хранит данные отдельно. Скопировать плейлисты, лайки, историю и ключи из обычной версии Silo (её база не меняется).",
+  "The native version keeps its own data. Copy playlists, likes, history and keys from the regular Silo (its database is not changed)."
+ ],
+ [
+  "dataImportBtn",
+  "Скопировать сейчас",
+  "Copy now"
+ ],
+ [
+  "dataImported",
+  "Данные скопированы, перезапустите программу",
+  "Data copied, restart the app"
+ ],
+ [
+  "nativeBadge",
+  "Нативная версия",
+  "Native edition"
+ ],
+ [
+  "noMainDb",
+  "База основной версии не найдена",
+  "Main version database not found"
+ ],
+ [
+  "fileSaved",
+  "Файл сохранён",
+  "File saved"
+ ],
+ [
+  "embedNote",
+  "Официальный плеер YouTube",
+  "Official YouTube player"
+ ],
+ [
+  "scNoKey",
+  "Для SoundCloud без ключей играет официальный виджет",
+  "Without keys SoundCloud plays in the official widget"
+ ],
+ [
+  "themeAuto",
+  "Тема",
+  "Theme"
+ ],
+ [
+  "openFolder",
+  "Выбрать папку…",
+  "Choose folder…"
+ ],
+ [
+  "eqPreset",
+  "Пресеты",
+  "Presets"
+ ],
+ [
+  "tray",
+  "Сворачивать в трей при закрытии",
+  "Minimize to tray on close"
+ ],
+ [
+  "quit",
+  "Выйти",
+  "Quit"
+ ],
+ [
+  "show",
+  "Открыть Silo",
+  "Open Silo"
+ ],
+ [
+  "prevT",
+  "Предыдущий трек",
+  "Previous track"
+ ],
+ [
+  "nextT",
+  "Следующий трек",
+  "Next track"
+ ],
+ [
+  "toggleT",
+  "Пауза / играть",
+  "Pause / play"
+ ],
+ [
+  "searchYtHint",
+  "Поиск идёт по YouTube (и по вашей библиотеке). В режиме «Чистый YouTube» каждый поиск тратит 1 из 100 поисков API в сутки, в режиме yt-dlp квота не нужна.",
+  "Search goes to YouTube (and your library). In Pure YouTube mode each search uses 1 of 100 daily API searches; yt-dlp mode needs no quota."
+ ],
+ [
+  "searchPlaceholder",
+  "Трек, исполнитель или ссылка YouTube…",
+  "Track, artist or YouTube link…"
+ ],
+ [
+  "ytDlpBanner",
+  "Режим «Библиотека yt-dlp» включён, но yt-dlp.exe не найден: положите его в папку программы или укажите путь в Настройках. Пока работает запасной путь.",
+  "yt-dlp library mode is on but yt-dlp.exe was not found: put it next to the program or set the path in Settings. A fallback is used meanwhile."
+ ],
+ [
+  "ytDlpUpdate",
+  "Обновить yt-dlp",
+  "Update yt-dlp"
+ ],
+ [
+  "ytDlpUpdated",
+  "yt-dlp обновлён",
+  "yt-dlp updated"
+ ],
+ [
+  "ytDlpUpdating",
+  "Обновляю yt-dlp…",
+  "Updating yt-dlp…"
+ ]
+]

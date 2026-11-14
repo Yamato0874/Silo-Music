@@ -8,6 +8,7 @@ pub fn http() -> reqwest::Client {
         .build().expect("http client")).clone()
 }
 pub mod db;
+pub mod secret;
 pub mod jamendo;
 pub mod model;
 pub mod soundcloud;
@@ -19,6 +20,8 @@ pub mod opencat;
 pub mod lbradio;
 pub mod lrclib;
 pub mod langfilter;
+pub mod deezer;
+pub mod ytmatch;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
