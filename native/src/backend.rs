@@ -144,7 +144,9 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
                 v
             }
         };
-        out.extend(v.into_iter().take(3));
+        // не всегда первые три из десяти: иначе волна по любимому исполнителю крутит одни и те же песни
+        let rot = if v.is_empty() { 0 } else { (n / 11 + a.len()) % v.len() };
+        out.extend(v.iter().cycle().skip(rot).take(3.min(v.len())).cloned());
     }
     let mut sim: Vec<String> = vec![];
     let mut mb_calls = 0;
@@ -186,7 +188,9 @@ pub async fn yt_similar_tracks(s: &App, key: &str, fav: &[String]) -> Vec<Track>
                 v
             }
         };
-        out.extend(v.into_iter().take(3));
+        // не всегда первые три из десяти: иначе волна по любимому исполнителю крутит одни и те же песни
+        let rot = if v.is_empty() { 0 } else { (n / 11 + a.len()) % v.len() };
+        out.extend(v.iter().cycle().skip(rot).take(3.min(v.len())).cloned());
     }
     out
 }
@@ -720,7 +724,7 @@ pub async fn echo_mix(
         let has = !events.is_empty();
         (
             echo::Model::build(&events, mode, &seed).with_seed_artists(&seed_artists.unwrap_or_default()),
-            d.played_ids(60).map_err(e)?.into_iter().collect::<HashSet<_>>(),
+            d.played_ids(1000).map_err(e)?.into_iter().collect::<HashSet<_>>(),
             d.ratings().map_err(e)?,
             has,
         )
@@ -816,7 +820,9 @@ pub async fn echo_mix(
             "Для «Эхо» нужен хотя бы один ключ (Jamendo, YouTube или SoundCloud): Настройки → Ключи сервисов".into()
         });
     }
-    out_info.tracks = echo::compose(&slots, &pool, &played, &rated);
+    // версии одного трека (клип, lyrics, Topic) считаются повтором: ключи недавно игравших (до 1000 последних)
+    let played_keys: HashSet<String> = db(&s).history(1000).unwrap_or_default().iter().map(echo::track_key).collect();
+    out_info.tracks = echo::compose(&slots, &pool, &played, &played_keys, &rated);
     // шире: не больше двух треков одного исполнителя за подборку
     youtube::cap_artist(&mut out_info.tracks, 2);
     drop_banned(&s, &mut out_info.tracks);
