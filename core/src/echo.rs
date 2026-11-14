@@ -63,7 +63,9 @@ impl Event {
 
 /// Прослушивание: доля прослушанного → награда. Меньше 10% (мгновенный пропуск) = 0, от 80% = 1, между — линейно.
 pub fn play_event(tags: Vec<String>, fraction: f64, age_secs: i64) -> Event {
-    Event { tags, artist: String::new(), reward: ((fraction - 0.1) / 0.7).clamp(0.0, 1.0), weight: 1.0, age_secs, quality: None }
+    // мгновенный пропуск (меньше 10%) весит больше обычного прослушивания: модель быстрее учится тому, что не нравится
+    let reward = ((fraction - 0.1) / 0.7).clamp(0.0, 1.0);
+    Event { tags, artist: String::new(), reward, weight: if fraction < 0.1 { 1.6 } else { 1.0 }, age_secs, quality: None }
 }
 /// Оценка: «нравится» — сильный плюс, «не нравится» — лёгкий минус. Он слегка сдвигает оценку исполнителя, его жанров
 /// и похожей музыки, но никого не банит: полное исключение касается только самого трека (решает хранилище, не модель).
@@ -98,7 +100,7 @@ impl Model {
         evs.sort_by(|a, b| b.age_secs.cmp(&a.age_secs)); // от старых к новым
         // адаптивное затухание: активным слушателям данных много, они дрейфуют быстрее — забываем быстрее
         let n14 = events.iter().filter(|e| e.age_secs < 14 * 86400).count() as f64;
-        let half_life_days = 14.0 + 46.0 / (1.0 + n14 / 30.0);
+        let half_life_days = 7.0 + 23.0 / (1.0 + n14 / 20.0);
         // склонность к новому: как человек реагирует на жанры, которые не были для него «любимыми»
         let tax = taxonomy::get();
         let exps: Vec<Vec<(String, f64)>> = evs.iter().map(|e| tax.expand(&e.tags)).collect();
@@ -107,7 +109,7 @@ impl Model {
         for (e, ex) in evs.iter().zip(&exps) {
             // жанр «знаком», если по нему самому (а не по родителю) уже есть уверенная положительная история
             let known = ex.iter().filter(|x| x.1 >= 1.0).any(|(t, _)| run.get(t).map_or(false, |(a, b)| a + b >= 3.0 && a / (a + b) > 0.6));
-            if !e.tags.is_empty() && !known && e.weight == 1.0 { appetite = 0.85 * appetite + 0.15 * e.reward; }
+            if !e.tags.is_empty() && !known && e.weight < 2.0 { appetite = 0.85 * appetite + 0.15 * e.reward; }
             for (t, c) in ex { let r = run.entry(t.clone()).or_default(); r.0 += c * e.weight * e.reward; r.1 += c * e.weight * (1.0 - e.reward); }
         }
         let m0 = (mode.base_prior() + 0.3 * (appetite - 0.5)).clamp(0.15, 0.8);
@@ -235,7 +237,7 @@ pub fn plan(model: &Model, n: usize, rng: &mut Rng) -> Vec<Slot> {
     for _ in 0..n {
         let top: Vec<&String> = known.iter().take(3).collect();
         let mut cands: Vec<String> = known.iter().filter(|t| model.evidence(t) >= 3.0 || model.seed.contains(*t)).cloned().collect();
-        for _ in 0..2 {
+        for _ in 0..3 {
             let near_tags: Vec<&str> = top.iter().flat_map(|t| tax.neighbors(t)).collect();
             let t = if !near_tags.is_empty() && rng.f() < 0.7 { near_tags[rng.below(near_tags.len())] } else { all[rng.below(all.len())] };
             if !cands.iter().any(|c| c == t) { cands.push(t.to_string()); }
@@ -284,12 +286,36 @@ pub fn rerank(
     list.extend(keyed.into_iter().map(|x| x.1));
 }
 
+/// Ключ «одного и того же трека» в разных версиях: исполнитель плюс название без скобок и пометок
+/// (official video, lyrics, audio, HD, клип и т. п.), только буквы и цифры.
+pub fn track_key(t: &Track) -> String {
+    fn clean(s: &str) -> String {
+        let mut out = String::new();
+        let mut depth = 0;
+        for ch in s.chars() {
+            match ch { '(' | '[' | '{' | '（' => depth += 1, ')' | ']' | '}' | '）' => { if depth > 0 { depth -= 1; } } _ if depth == 0 => out.push(ch), _ => {} }
+        }
+        out.to_lowercase()
+    }
+    let artist: String = clean(&t.artist).replace(" - topic", "").replace("vevo", "").chars().filter(|c| c.is_alphanumeric()).collect();
+    let mut title = clean(&t.name);
+    // «Исполнитель - Название» в самом названии: убираем префикс с исполнителем
+    if let Some((a, rest)) = title.split_once(" - ") {
+        let a: String = a.chars().filter(|c| c.is_alphanumeric()).collect();
+        if !a.is_empty() && (a == artist || artist.contains(&a) || a.contains(&artist)) { title = rest.to_string(); }
+    }
+    const NOISE: [&str; 14] = ["official", "video", "lyrics", "lyric", "audio", "hd", "hq", "4k", "remastered", "клип", "официальный", "музыкальное", "версия", "visualizer"];
+    let words: Vec<&str> = title.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty() && !NOISE.contains(w)).collect();
+    format!("{}|{}", artist, words.concat())
+}
+
 /// Собрать плейлист по плану из найденных треков. Не берёт слышанное и треки, отправленные в бан (исполнителей и жанры не отсекает),
 /// не ставит одного исполнителя ближе чем через 4 трека и больше двух раз за подборку.
 pub fn compose(
     slots: &[Slot],
     pool: &HashMap<String, Vec<Track>>,
     played: &HashSet<String>,
+    played_keys: &HashSet<String>,
     rated: &HashMap<String, i32>,
 ) -> Vec<Track> {
     let mut cursor: HashMap<&str, usize> = HashMap::new();
@@ -300,9 +326,11 @@ pub fn compose(
         while *cur < list.len() {
             let t = &list[*cur];
             *cur += 1;
+            let key = track_key(t);
             let bad = played.contains(&t.id)
+                || played_keys.contains(&key)
                 || rated.get(&t.id) == Some(&-2)
-                || out.iter().any(|x| x.id == t.id)
+                || out.iter().any(|x| x.id == t.id || track_key(x) == key)
                 || out.iter().filter(|x| x.artist == t.artist).count() >= 2
                 || out.iter().rev().take(4).any(|x| x.artist == t.artist);
             if !bad { out.push(t.clone()); break; }
@@ -507,11 +535,30 @@ mod tests {
         let played: HashSet<String> = ["3".to_string()].into_iter().collect();
         let mut rated = HashMap::new();
         rated.insert("6".to_string(), -2);
-        let out = compose(&slots, &pool, &played, &rated);
+        let out = compose(&slots, &pool, &played, &HashSet::new(), &rated);
         let ids: Vec<_> = out.iter().map(|t| t.id.as_str()).collect();
         assert!(!ids.contains(&"3") && !ids.contains(&"6"), "{ids:?}");
         assert!(out.iter().filter(|t| t.artist == "A").count() <= 2);
         assert!(out.windows(2).all(|w| w[0].artist != w[1].artist));
+    }
+
+    #[test]
+    fn versions_of_one_track_are_deduplicated() {
+        let mut a = tr("1", "Кино"); a.name = "Группа крови (Official Video)".into();
+        let mut b = tr("2", "Кино - Topic"); b.name = "Кино - Группа крови [Lyrics]".into();
+        let mut c = tr("3", "Кино"); c.name = "Звезда по имени Солнце".into();
+        assert_eq!(track_key(&a), track_key(&b));
+        assert_ne!(track_key(&a), track_key(&c));
+        let mut pool = HashMap::new();
+        pool.insert("rock".to_string(), vec![a.clone(), b.clone(), c.clone()]);
+        let slots: Vec<Slot> = (0..3).map(|_| Slot { tag: "rock".into(), explore: false }).collect();
+        let played_keys: HashSet<String> = [track_key(&a)].into_iter().collect();
+        let out = compose(&slots, &pool, &HashSet::new(), &played_keys, &HashMap::new());
+        assert_eq!(out.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec!["3"]);
+    }
+    #[test]
+    fn instant_skips_weigh_more_than_plays() {
+        assert!(play_event(tg("a"), 0.02, 0).weight > play_event(tg("a"), 0.9, 0).weight);
     }
 
     #[test]
