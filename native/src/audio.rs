@@ -17,6 +17,8 @@ use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
 
+/// Добротность пиковых полос: 1,4 для октавных полос графического эквалайзера (меньше перекрытия соседних полос, чем при 1,1).
+pub const EQ_Q: f32 = 1.4;
 pub const EQ_FREQS: [f32; 10] = [32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
 
 #[derive(Clone, Debug)]
@@ -324,6 +326,10 @@ struct Mixer {
     fx: Fx,
     fx_ver: u64,
     comp_env: f32,
+    /// текущие (сглаженные) усиления полос и предусиление: переключение пресета и ползунки не щёлкают
+    eq_cur: [f32; 10],
+    eq_pre: f32,
+    eq_rate: u32,
     gain: f32,
     /// «Слабый» апскейл: достройка верха, срезанного сжатием (см. exciter.rs)
     bwe: crate::exciter::Bwe,
@@ -333,7 +339,7 @@ struct Mixer {
 
 impl Mixer {
     fn new(sh: Arc<Shared>) -> Mixer {
-        Mixer { sh, out: vec![], tmp: vec![], eq: [[Biquad::default(); 2]; 10], fx: Fx::default(), fx_ver: 0, comp_env: 0.0, gain: 0.0, bwe: crate::exciter::Bwe::new(48000.0, 12.0), bwe_rate: 48000, bwe_on: false }
+        Mixer { sh, out: vec![], tmp: vec![], eq: [[Biquad::default(); 2]; 10], fx: Fx::default(), fx_ver: 0, comp_env: 0.0, eq_cur: [0.0; 10], eq_pre: 1.0, eq_rate: 0, gain: 0.0, bwe: crate::exciter::Bwe::new(48000.0, 12.0), bwe_rate: 48000, bwe_on: false }
     }
     fn pull(deck: &Deck, dst: &mut [f32]) -> usize {
         let Ok(mut b) = deck.buf.try_lock() else { return 0 };
@@ -411,11 +417,6 @@ impl Mixer {
             if let Ok(f) = self.sh.fx.try_lock() {
                 self.fx = f.clone();
                 self.fx_ver = ver;
-                for (i, fq) in EQ_FREQS.iter().enumerate() {
-                    let kind = if i == 0 { 0 } else if i == 9 { 2 } else { 1 };
-                    let g = if self.fx.eq_on { self.fx.eq[i] } else { 0.0 };
-                    for c in 0..2 { self.eq[i][c].set(kind, *fq, g, 1.1, rate as f32); }
-                }
                 self.sh.hq.store(self.fx.upscale > 0, Relaxed);
             }
         }
@@ -426,7 +427,26 @@ impl Mixer {
             self.bwe_on = true;
             self.bwe.process(&mut self.out[..n]);
         } else { self.bwe_on = false; self.sh.bwe_reset.store(false, Relaxed); }
-        let eq_on = self.fx.eq_on && self.fx.eq.iter().any(|g| g.abs() > 0.01);
+        // цель: усиления из настроек (или нули при выключенном EQ); текущие значения плавно (около 30 мс) идут к цели,
+        // коэффициенты пересчитываются только пока идёт переход; предусиление не даёт сумме полос уйти в клиппинг
+        let target_g: [f32; 10] = if self.fx.eq_on { self.fx.eq } else { [0.0; 10] };
+        let moving = self.eq_rate != rate || (0..10).any(|i| (target_g[i] - self.eq_cur[i]).abs() > 0.005);
+        if moving {
+            let k = 1.0 - (-((n / 2) as f32) / (0.03 * rate as f32)).exp();
+            let snap = self.eq_rate != rate;
+            for i in 0..10 {
+                let d = target_g[i] - self.eq_cur[i];
+                self.eq_cur[i] = if snap || d.abs() < 0.01 { target_g[i] } else { self.eq_cur[i] + d * k };
+            }
+            self.eq_rate = rate;
+            for (i, fq) in EQ_FREQS.iter().enumerate() {
+                let kind = if i == 0 { 0 } else if i == 9 { 2 } else { 1 };
+                for c in 0..2 { let old = self.eq[i][c]; self.eq[i][c].set(kind, *fq, self.eq_cur[i], EQ_Q, rate as f32); self.eq[i][c] = self.eq[i][c].with_state(old); }
+            }
+            self.eq_pre = 10f32.powf(eq_preamp_db(&self.eq_cur, rate as f32) / 20.0);
+        }
+        let eq_on = self.eq_cur.iter().any(|g| g.abs() > 0.01);
+        let eq_pre = self.eq_pre;
         let vol = f32_load(&self.sh.volume);
         let vol = vol * vol; // ощущаемая громкость ближе к линейной шкале ползунка
         // компрессор «выравнивания»: порог -26 дБ, 4:1, мягкое колено; атака 3 мс, спад 250 мс
@@ -435,6 +455,7 @@ impl Mixer {
             let (mut l, mut r) = (self.out[i * 2], self.out[i * 2 + 1]);
             if eq_on {
                 for b in self.eq.iter_mut() { l = b[0].run(l); r = b[1].run(r); }
+                l *= eq_pre; r *= eq_pre;
             }
             if self.fx.normalize {
                 let lv = l.abs().max(r.abs());
@@ -448,8 +469,8 @@ impl Mixer {
             }
             self.gain += (target - self.gain) * 0.004; // ~5 мс на нарастание/затухание
             let g = self.gain * vol;
-            self.out[i * 2] = (l * g).clamp(-1.0, 1.0);
-            self.out[i * 2 + 1] = (r * g).clamp(-1.0, 1.0);
+            self.out[i * 2] = soft_limit(l * g);
+            self.out[i * 2 + 1] = soft_limit(r * g);
         }
         self.tap();
     }
@@ -462,16 +483,37 @@ impl Mixer {
     fn ping(&self) { if let Ok(r) = self.sh.repaint.try_lock() { if let Some(f) = r.as_ref() { f(); } } }
 }
 
+/// Предусиление (дБ, не больше нуля): минус максимум суммарного усиления всех полос по частоте, чтобы подъём полос не давал клиппинг.
+pub fn eq_preamp_db(gains: &[f32; 10], fs: f32) -> f32 {
+    let mut bands = [Biquad::default(); 10];
+    for (i, fq) in EQ_FREQS.iter().enumerate() { bands[i].set(if i == 0 { 0 } else if i == 9 { 2 } else { 1 }, *fq, gains[i], EQ_Q, fs); }
+    let mut peak = 0.0f32;
+    for k in 0..96 {
+        let f = 20.0 * (20000.0f32 / 20.0).powf(k as f32 / 95.0);
+        if f >= fs * 0.49 { break; }
+        peak = peak.max(bands.iter().map(|b| b.mag_db(f, fs)).sum());
+    }
+    -peak.max(0.0)
+}
+
+/// Мягкий ограничитель на выходе: до 0,9 звук не меняется, выше плавно прижимается к 1,0 вместо жёсткого среза.
+#[inline]
+pub fn soft_limit(x: f32) -> f32 {
+    let a = x.abs();
+    if a <= 0.9 { x } else { x.signum() * (0.9 + 0.1 * ((a - 0.9) / 0.1).tanh()) }
+}
+
 /// Биквадратный фильтр (RBJ): полка снизу, пики, полка сверху — как BiquadFilterNode в Web Audio.
 #[derive(Clone, Copy, Default)]
-pub struct Biquad { b0: f32, b1: f32, b2: f32, a1: f32, a2: f32, z1: f32, z2: f32 }
+pub struct Biquad { b0: f64, b1: f64, b2: f64, a1: f64, a2: f64, z1: f64, z2: f64 }
 impl Biquad {
     /// kind: 0 нижняя полка, 1 пик, 2 верхняя полка, 3 фильтр верхних частот, 4 фильтр нижних частот, 5 полосовой (постоянная ширина)
     pub fn set(&mut self, kind: u8, f: f32, gain_db: f32, q: f32, fs: f32) {
-        let a = 10f32.powf(gain_db / 40.0);
-        let w0 = 2.0 * std::f32::consts::PI * (f / fs).min(0.49);
+        let (f, gain_db, q, fs) = (f as f64, gain_db as f64, q as f64, fs as f64);
+        let a = 10f64.powf(gain_db / 40.0);
+        let w0 = 2.0 * std::f64::consts::PI * (f / fs).min(0.49);
         let (cw, sw) = (w0.cos(), w0.sin());
-        let (b0, b1, b2, a0, a1, a2);
+        let (b0, b1, b2, a0, a1, a2): (f64, f64, f64, f64, f64, f64);
         match kind {
             0 | 2 => {
                 // полки с S = 1
@@ -513,10 +555,21 @@ impl Biquad {
     }
     #[inline]
     pub fn run(&mut self, x: f32) -> f32 {
+        let x = x as f64;
         let y = self.b0 * x + self.z1;
         self.z1 = self.b1 * x - self.a1 * y + self.z2;
         self.z2 = self.b2 * x - self.a2 * y;
-        y
+        y as f32
+    }
+    /// Те же коэффициенты, но с состоянием старого фильтра (при смене коэффициентов память фильтра не теряется).
+    pub fn with_state(&self, old: Biquad) -> Biquad { Biquad { z1: old.z1, z2: old.z2, ..*self } }
+    /// Усиление на частоте f в дБ.
+    pub fn mag_db(&self, f: f32, fs: f32) -> f32 {
+        let w = 2.0 * std::f64::consts::PI * (f as f64 / fs as f64);
+        let (c1, s1, c2, s2) = (w.cos(), w.sin(), (2.0 * w).cos(), (2.0 * w).sin());
+        let (nr, ni) = (self.b0 + self.b1 * c1 + self.b2 * c2, -(self.b1 * s1 + self.b2 * s2));
+        let (dr, di) = (1.0 + self.a1 * c1 + self.a2 * c2, -(self.a1 * s1 + self.a2 * s2));
+        (10.0 * ((nr * nr + ni * ni) / (dr * dr + di * di)).max(1e-20).log10()) as f32
     }
 }
 
@@ -890,5 +943,47 @@ mod mixer_tests {
         assert!(hi(&off) < -120.0, "в режиме «Нет» верх появился: {}", hi(&off));
         assert!(hi(&weak) > hi(&off) + 100.0 && hi(&weak) > -110.0, "«Слабый» не достроил верх: {}", hi(&weak));
         assert!((lo(&weak) - lo(&off)).abs() < 0.3, "«Слабый» изменил звук ниже среза: {:.2} дБ", lo(&weak) - lo(&off));
+    }
+}
+
+#[cfg(test)]
+mod eq_tests {
+    use super::*;
+    #[test]
+    fn preamp_prevents_clipping_when_bands_are_boosted() {
+        let pre = eq_preamp_db(&[12.0f32; 10], 48000.0);
+        assert!(pre < -10.0, "предусиление {pre}");
+        assert_eq!(eq_preamp_db(&[0.0; 10], 48000.0), 0.0);
+        assert_eq!(eq_preamp_db(&[-6.0; 10], 48000.0), 0.0);
+    }
+    #[test]
+    fn eq_chain_with_preamp_stays_within_range() {
+        let rate = 48000.0f32;
+        let g = [9.0f32, 8.0, 6.0, 3.0, 0.0, 0.0, 3.0, 6.0, 8.0, 9.0];
+        let pre = 10f32.powf(eq_preamp_db(&g, rate) / 20.0);
+        let mut bands = [Biquad::default(); 10];
+        for (i, fq) in EQ_FREQS.iter().enumerate() { let k = if i == 0 { 0 } else if i == 9 { 2 } else { 1 }; bands[i].set(k, *fq, g[i], EQ_Q, rate); }
+        let (mut peak, mut ph) = (0.0f32, 0.0f32);
+        for n in 0..96000 {
+            let f = 30.0 * (16000.0f32 / 30.0).powf(n as f32 / 96000.0);
+            ph += 2.0 * std::f32::consts::PI * f / rate;
+            let mut x = 0.9 * ph.sin();
+            for b in bands.iter_mut() { x = b.run(x); }
+            peak = peak.max((x * pre).abs());
+        }
+        assert!(peak <= 1.0, "пик {peak}");
+    }
+    #[test]
+    fn soft_limit_is_transparent_below_threshold_and_bounded() {
+        assert_eq!(soft_limit(0.5), 0.5);
+        assert!(soft_limit(3.0) <= 1.0 && soft_limit(3.0) > 0.99);
+        assert!(soft_limit(-3.0) >= -1.0);
+    }
+    #[test]
+    fn peaking_band_has_requested_gain_at_center() {
+        let mut b = Biquad::default();
+        b.set(1, 1000.0, 6.0, EQ_Q, 48000.0);
+        assert!((b.mag_db(1000.0, 48000.0) - 6.0).abs() < 0.05);
+        assert!(b.mag_db(100.0, 48000.0).abs() < 0.5);
     }
 }

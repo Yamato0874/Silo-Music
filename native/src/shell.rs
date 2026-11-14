@@ -34,13 +34,16 @@ impl eframe::App for SiloApp {
         if self.demo.is_some() { ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden); }
         // в фоне (игра, другое окно) почти не рисуем
         let bg = ctx.input(|i| !i.viewport().focused.unwrap_or(true) || i.viewport().minimized.unwrap_or(false));
-        crate::widgets::BG.store(bg && self.demo.is_none(), std::sync::atomic::Ordering::Relaxed);
+        crate::widgets::BG.store(bg && self.demo.is_none() && std::env::var_os("SILO_BENCH_FG").is_none(), std::sync::atomic::Ordering::Relaxed);
+        let t0 = std::time::Instant::now();
         self.tick();
+        crate::demo::slow("tick", t0);
         self.plat.set_state(self.ps.playing, self.ps.pos);
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        let _g = crate::demo::SlowGuard(std::time::Instant::now(), "ui");
         crate::demo::frame(self, &ctx);
         self.hotkeys(&ctx);
         let pal = self.pal;
@@ -237,7 +240,7 @@ impl SiloApp {
         if let Some(c) = &cur {
             let cs = if mini { 56.0 } else { 56.0 };
             let (cr, resp) = lu.allocate_exact_size(Vec2::splat(cs), Sense::click());
-            if self.viz && !BG.load(std::sync::atomic::Ordering::Relaxed) { self.paint_viz(&lu, cr); } else { paint_cover(&lu, &pal, &self.imgs, &c.image, cr, 8); }
+            if self.viz && !BG.load(std::sync::atomic::Ordering::Relaxed) { self.paint_viz(&lu, cr); } else { paint_cover_hd(&lu, &pal, &self.imgs, &c.image, cr, 8); }
             if resp.on_hover_text(self.t("vizToggle")).clicked() { self.viz = !self.viz; }
             lu.add_space(10.0);
             let w = (left.width() - cs - 130.0).max(60.0);
@@ -330,7 +333,8 @@ impl SiloApp {
         paint_track(ui, &pal, bar, f, resp.hovered() || resp.dragged(), resp.id);
         ui.painter().text(Pos2::new(center.left() + tw - 8.0, by), Align2::RIGHT_CENTER, fmt_time(shown), FontId::proportional(12.0), pal.mut_);
         ui.painter().text(Pos2::new(center.right() - tw + 8.0, by), Align2::LEFT_CENTER, fmt_time(dur), FontId::proportional(12.0), pal.mut_);
-        if ps.playing { repaint(ui.ctx(), 40); }
+        // всё окно перерисовывается целиком: 4 кадра в секунду для полосы прогресса хватает (было 25, это четверть ядра)
+        if ps.playing { repaint(ui.ctx(), 250); }
     }
 
     pub fn rate_buttons(&mut self, ui: &mut Ui, t: &Track) {
@@ -431,7 +435,8 @@ impl SiloApp {
             let mut act: Option<(u8, usize, usize)> = None;
             for (i, t) in up.iter().enumerate().take(300) {
                 let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 50.0), Sense::click_and_drag());
-                let hov = resp.hovered();
+                // наведение по курсору: кнопка «убрать» лежит поверх строки и иначе исчезала бы под курсором
+                let hov = ui.rect_contains_pointer(r);
                 if hov { ui.painter().rect_filled(r, CornerRadius::same(8), pal.hover()); }
                 resp.dnd_set_drag_payload(i);
                 if let Some(from) = resp.dnd_release_payload::<usize>() { act = Some((1, *from, i)); }
@@ -514,7 +519,7 @@ impl SiloApp {
         if !has_video {
             if let Some(c) = &cur {
                 let s = (rect.height() * 0.5).min(rect.width() * 0.5).min(420.0);
-                paint_cover(ui, &pal, &self.imgs, &c.image, Rect::from_center_size(rect.center() - Vec2::new(0.0, if self.karaoke { rect.height() * 0.18 } else { 0.0 }), Vec2::splat(s)), 14);
+                paint_cover_hd(ui, &pal, &self.imgs, &c.image, Rect::from_center_size(rect.center() - Vec2::new(0.0, if self.karaoke { rect.height() * 0.18 } else { 0.0 }), Vec2::splat(s)), 14);
                 if cur.as_ref().is_some_and(|c| c.source == "youtube") && self.prefs.yt_mode == "ytdlp" && !self.prefs.ytdlp_video {
                     ui.painter().text(rect.center_bottom() - Vec2::new(0.0, 30.0), Align2::CENTER_CENTER, self.t("ytDlpVideo"), FontId::proportional(12.0), Color32::from_gray(140));
                 }
