@@ -194,6 +194,12 @@ pub struct SiloApp {
     pub last_src: String,
     /// какой уровень апскейла сейчас применён в движке (0 нет, 1 достройка верха)
     pub last_fx_up: u8,
+    /// до какого момента (по часам окна) звук не берём у yt-dlp: YouTube просит подтвердить, что это не бот
+    pub yt_blocked_until: f64,
+    /// короткое сообщение про бот-проверку уже показывалось в этой сессии
+    pub bot_toast_shown: bool,
+    /// время последнего сообщения о другой ошибке yt-dlp
+    pub yt_err_toast_at: f64,
     /// треки YouTube, которые yt-dlp не смог отдать: играют официальным плеером
     force_embed: HashSet<String>,
 }
@@ -217,7 +223,7 @@ impl SiloApp {
         let cache = crate::cache::Cache::new(&local.join("cache"));
         let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
-            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, force_embed: HashSet::new(),
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_blocked_until: 0.0, bot_toast_shown: false, yt_err_toast_at: -1000.0, force_embed: HashSet::new(),
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,
@@ -547,7 +553,8 @@ impl SiloApp {
     fn src_for(&self, t: &Track) -> Option<(Src, bool)> {
         let key = crate::cache::key(&t.id);
         let file = |p: std::path::PathBuf| Src::File(p.to_string_lossy().to_string());
-        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || self.force_embed.contains(&t.id)));
+        let blocked = self.ctx.input(|i| i.time) < self.yt_blocked_until;
+        let embed_only = t.source == "soundcloud" || (t.source == "youtube" && (self.ytdlp_exe().is_none() || blocked || self.force_embed.contains(&t.id)));
         if !embed_only {
             if self.prefs.upscale == 2 && self.enh.ready() { if let Some(p) = self.cache.enhanced(&key) { return Some((file(p), true)); } }
             if t.source != "local" { if let Some(p) = self.cache.orig(&key) { return Some((file(p), false)); } }
@@ -616,6 +623,8 @@ impl SiloApp {
 
     /// Каждый кадр: смена трека, подбор YouTube для Deezer, предзагрузка, события движка, состояние.
     pub fn tick(&mut self) {
+        // yt-dlp не найден: один раз скачиваем официальный и сверяем контрольную сумму
+        if self.prefs.yt_mode == "ytdlp" && !crate::ytdlp::download_attempted() && self.ytdlp_exe().is_none() { crate::ytdlp::start_download(&self.rt); }
         // «Средний» нельзя держать включённым без установленной нейросети
         if self.prefs.upscale == 2 && matches!(self.enh.state(), crate::enhance::Install::Missing | crate::enhance::Install::Failed(_)) { self.prefs.upscale = 1; }
         // режим yt-dlp: ядро ходит в YouTube только через yt-dlp, без ключа и квоты
@@ -645,6 +654,9 @@ impl SiloApp {
                     let yt = cur.as_ref().filter(|c| c.source == "youtube" && self.ytdlp_exe().is_some() && !self.force_embed.contains(&c.id));
                     // YouTube просит подтвердить, что это не бот: один раз спрашиваем разрешения использовать вход в YouTube из браузера
                     let botcheck = { let l = m.to_lowercase(); l.contains("not a bot") || l.contains("sign in to confirm") };
+                    let now = self.ctx.input(|i| i.time);
+                    // бот-проверка: на полчаса молча играем через официальный плеер, yt-dlp на каждый трек не дёргаем
+                    if botcheck && yt.is_some() { self.yt_blocked_until = now + 1800.0; }
                     if botcheck && yt.is_some() && self.prefs.ytdlp_cookies.is_empty() && !self.prefs.ytdlp_cookies_asked {
                         self.prefs.ytdlp_cookies_asked = true;
                         if let Some(b) = crate::platform::installed_browser() {
@@ -656,6 +668,7 @@ impl SiloApp {
                             if ok == rfd::MessageDialogResult::Yes {
                                 self.prefs.ytdlp_cookies = b.to_string();
                                 crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
+                                self.yt_blocked_until = 0.0;
                                 self.preloaded = None;
                                 self.cur_key.clear();
                                 self.toast("Пробую снова с входом из браузера", ToastKind::Info);
@@ -667,7 +680,13 @@ impl SiloApp {
                         // yt-dlp не отдал звук: этот трек играет официальный плеер YouTube, битый файл из кэша удаляем
                         self.force_embed.insert(c.id.clone());
                         if let Some(p) = self.cache.orig(&crate::cache::key(&c.id)) { let _ = std::fs::remove_file(p); }
-                        self.toast(format!("yt-dlp: {m}. Играю через официальный плеер"), ToastKind::Info);
+                        if botcheck {
+                            if !self.bot_toast_shown { self.bot_toast_shown = true; self.toast("YouTube просит подтвердить, что вы не бот: играю через официальный плеер. Включить вход из браузера: Настройки → YouTube", ToastKind::Info); }
+                        } else if now - self.yt_err_toast_at > 120.0 {
+                            self.yt_err_toast_at = now;
+                            let short: String = m.chars().take(70).collect();
+                            self.toast(format!("yt-dlp не отдал звук ({short}): играю через официальный плеер"), ToastKind::Info);
+                        }
                         self.preloaded = None;
                         self.cur_key.clear();
                     } else {
