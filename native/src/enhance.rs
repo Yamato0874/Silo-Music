@@ -61,6 +61,8 @@ impl Enhancer {
         let s = S { install, queue: VecDeque::new(), wanted: HashSet::new(), running: None, done: 0, failed: HashMap::new(), cancel: false, paused: false, worker: false };
         Enhancer { root, sh: Arc::new((Mutex::new(s), Condvar::new())), rt, ctx, installing: Arc::new(AtomicBool::new(false)) }
     }
+    /// Только для самопроверки интерфейса: подменить состояние.
+    pub fn demo_state(&self, i: Install) { self.set(|s| s.install = i); }
     pub fn state(&self) -> Install { self.sh.0.lock().unwrap().install.clone() }
     pub fn ready(&self) -> bool { self.sh.0.lock().unwrap().install == Install::Ready }
     /// (в очереди, ключ в работе, готово за сеанс, пауза из-за полноэкранной программы)

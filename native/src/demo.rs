@@ -11,9 +11,9 @@ impl Demo {
     }
 }
 
-const STEPS: [(&str, f64); 15] = [
+const STEPS: [(&str, f64); 18] = [
     ("01-home", 6.0), ("02-search", 7.0), ("03-echo", 3.0), ("04-liked", 3.0), ("05-playlists", 3.0), ("06-history", 3.0),
-    ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 2.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0),
+    ("07-settings-look", 2.0), ("08-settings-yt", 2.0), ("09-settings-sound", 2.0), ("09b-ai-missing", 2.0), ("09c-ai-installing", 2.0), ("09d-ai-ready", 2.0), ("10-queue", 3.0), ("11-lyrics", 4.0), ("12-karaoke", 2.0), ("13-light", 3.0), ("14-preview", 8.0), ("15-youtube", 14.0),
 ];
 
 /// Замеры: SILO_BENCH=preview|youtube — найти «кино группа крови» и включить превью (свой движок) или полный трек (официальный плеер), звук на нуле.
@@ -110,6 +110,9 @@ pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
             "07-settings-look" => { app.tab = Tab::Settings; app.demo_set_tab("look"); }
             "08-settings-yt" => app.demo_set_tab("yt"),
             "09-settings-sound" => { app.demo_set_tab("sound"); app.prefs.eq_on = true; }
+            "09b-ai-missing" => { app.pages.focus_ai = true; }
+            "09c-ai-installing" => { app.enh.demo_state(crate::enhance::Install::Installing { step: "3/6 PyTorch (≈ 2,7 ГБ, самый долгий шаг)".into(), detail: "1234 МБ, прошло 3 мин".into(), frac: None }); app.pages.focus_ai = true; }
+            "09d-ai-ready" => { app.enh.demo_state(crate::enhance::Install::Ready); app.pages.focus_ai = true; }
             "10-queue" => { app.tab = Tab::Home; app.show_q = true; }
             "11-lyrics" => { app.show_q = false; app.show_l = true; app.load_lyrics(); }
             "12-karaoke" => { app.show_l = false; app.stage = true; app.karaoke = true; app.load_lyrics(); }

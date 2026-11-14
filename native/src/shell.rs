@@ -65,8 +65,10 @@ impl eframe::App for SiloApp {
                             ui.horizontal(|ui| {
                                 let (r, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
                                 paint_icon(ui.painter(), r, "alert", pal.acc, false);
-                                ui.add(egui::Label::new(RichText::new(self.t("ytDlpBanner")).color(pal.fg).size(12.5)).wrap());
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| { if btn_sm(ui, &pal, V::Solid, None, self.t("settings"), false).clicked() { go = true; } });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if btn_sm(ui, &pal, V::Solid, None, self.t("settings"), false).clicked() { go = true; }
+                                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| { ui.add(egui::Label::new(RichText::new(self.t("ytDlpBanner")).color(pal.fg).size(12.5)).wrap()); });
+                                });
                             });
                         });
                         if go { self.open_settings_tab("yt"); }

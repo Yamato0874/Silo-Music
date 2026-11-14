@@ -21,6 +21,7 @@ pub struct ListState { pub filter: String, pub limit: usize }
 pub struct Pages {
     pub acts: Vec<Act>,
     pub focus_search: bool,
+    pub focus_ai: bool,
     pub dirty_ratings: bool,
     pub pl_reload: bool,
     pub onb_redo: bool,
@@ -669,7 +670,17 @@ impl SiloApp {
             if online && !q.is_empty() {
                 let yt: Result<Vec<Track>, String> = if let Some(exe) = exe {
                     let q2 = q.clone();
-                    tokio::task::spawn_blocking(move || crate::ytdlp::search(&exe, &q2, 20)).await.map_err(|e| e.to_string()).and_then(|x| x)
+                    let r = tokio::task::spawn_blocking(move || crate::ytdlp::search(&exe, &q2, 20)).await.map_err(|e| e.to_string()).and_then(|x| x);
+                    match r {
+                        Ok(v) if !v.is_empty() => Ok(v),
+                        other => {
+                            // yt-dlp не сработал (YouTube поменялся, нет Node): берём бесплатные зеркала, они не тратят ни ключ, ни квоту
+                            match silo_core::ytmatch::free_search(&q, 0).await {
+                                Some((_, v)) => { errs.push(format!("yt-dlp: {}. Результаты из запасного источника. Попробуйте «Обновить yt-dlp» в Настройках.", other.err().unwrap_or_else(|| "ничего не нашёл".into()))); Ok(v.iter().map(|c| crate::ytdlp::yt_track(&c.vid, &c.title, &c.channel, c.duration)).collect()) }
+                                None => other,
+                            }
+                        }
+                    }
                 } else {
                     let key = be::setting(&b, "youtube_api_key").unwrap_or_default();
                     if !key.trim().is_empty() && be::ytdlp_mode().is_none() { be::yt_search(&b, key.trim(), &q, 20, 30 * 86400).await } else {
@@ -1297,6 +1308,7 @@ impl SiloApp {
         let st = self.enh.state();
         let (queued, running, done, paused) = self.enh.queue_info();
         let t = |ru: &'static str, e: &'static str| if en { e } else { ru };
+        if self.pages.focus_ai { ui.scroll_to_cursor(Some(Align::TOP)); self.pages.focus_ai = false; }
         egui::Frame::new().fill(pal.raise()).stroke(Stroke::new(1.0, pal.line)).corner_radius(12).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -1862,8 +1874,10 @@ fn notice(ui: &mut Ui, pal: &crate::theme::Pal, icon: &str, text: &str, action: 
         ui.horizontal(|ui| {
             let (r, _) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::hover());
             paint_icon(ui.painter(), r, icon, pal.acc, false);
-            ui.add(egui::Label::new(RichText::new(text).color(pal.fg)).wrap());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| { hit = action(ui); });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                hit = action(ui);
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| { ui.add(egui::Label::new(RichText::new(text).color(pal.fg)).wrap()); });
+            });
         });
     });
     ui.add_space(8.0);
