@@ -51,6 +51,8 @@ pub struct Prefs {
     pub ytdlp_video: bool,
     /// браузер для cookies yt-dlp ("" — не использовать)
     pub ytdlp_cookies: String,
+    /// вопрос про cookies браузера уже задавался (спрашиваем один раз)
+    pub ytdlp_cookies_asked: bool,
     pub tray: bool,
     /// режим YouTube уже переведён на yt-dlp по умолчанию (однократно)
     pub yt_default_v2: bool,
@@ -63,7 +65,7 @@ impl Default for Prefs {
             shuffle: false, repeat: "off".into(), autoplay: true, crossfade: 0.0, gapless: true, normalize: false, eq_on: false, eq: vec![0.0; 10],
             quality: "normal".into(), theme: "amber".into(), lang: "ru".into(), volume: 0.8, onboarded: false, diversity: "balanced".into(), tastes: vec![], artists: vec![],
             show_video: false, lang_strict: true, rate: 1.0, notify: true, autostart: false, eq_auto: false,
-            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, ytdlp_cookies: String::new(), tray: true, yt_default_v2: true, upscale: 0,
+            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, ytdlp_cookies: String::new(), ytdlp_cookies_asked: false, tray: true, yt_default_v2: true, upscale: 0,
         }
     }
 }
@@ -641,6 +643,26 @@ impl SiloApp {
                 Event::Error(t, m) if t == self.token => {
                     let cur = self.cur().cloned();
                     let yt = cur.as_ref().filter(|c| c.source == "youtube" && self.ytdlp_exe().is_some() && !self.force_embed.contains(&c.id));
+                    // YouTube просит подтвердить, что это не бот: один раз спрашиваем разрешения использовать вход в YouTube из браузера
+                    let botcheck = { let l = m.to_lowercase(); l.contains("not a bot") || l.contains("sign in to confirm") };
+                    if botcheck && yt.is_some() && self.prefs.ytdlp_cookies.is_empty() && !self.prefs.ytdlp_cookies_asked {
+                        self.prefs.ytdlp_cookies_asked = true;
+                        if let Some(b) = crate::platform::installed_browser() {
+                            let ok = rfd::MessageDialog::new().set_level(rfd::MessageLevel::Info).set_title("Silo Player")
+                                .set_description(format!("YouTube просит подтвердить, что вы не бот, и не отдаёт звук.
+
+Разрешить yt-dlp использовать вход в YouTube из браузера {b} на этом компьютере? Cookies читаются только локально, нигде не сохраняются и не показываются, их получает только YouTube. Изменить можно в Настройках → YouTube."))
+                                .set_buttons(rfd::MessageButtons::YesNo).show();
+                            if ok == rfd::MessageDialogResult::Yes {
+                                self.prefs.ytdlp_cookies = b.to_string();
+                                crate::ytdlp::set_cookies_browser(&self.prefs.ytdlp_cookies);
+                                self.preloaded = None;
+                                self.cur_key.clear();
+                                self.toast("Пробую снова с входом из браузера", ToastKind::Info);
+                                return;
+                            }
+                        }
+                    }
                     if let Some(c) = yt {
                         // yt-dlp не отдал звук: этот трек играет официальный плеер YouTube, битый файл из кэша удаляем
                         self.force_embed.insert(c.id.clone());
