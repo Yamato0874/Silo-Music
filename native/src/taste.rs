@@ -6,6 +6,7 @@ pub fn node(id: &str) -> Option<&'static Node> { tax().node(id) }
 pub fn name(n: &Node, en: bool) -> &str { if en { &n.en } else { &n.ru } }
 pub fn families() -> Vec<&'static Node> { tax().nodes().iter().filter(|n| n.kind == "family").collect() }
 pub fn of_kind(k: &str) -> Vec<&'static Node> { tax().nodes().iter().filter(|n| n.kind == k).collect() }
+pub fn children(id: &str) -> Vec<&'static Node> { tax().nodes().iter().filter(|n| n.parent.as_deref() == Some(id)).collect() }
 pub fn descendants(id: &str) -> Vec<&'static Node> { tax().nodes().iter().filter(|n| tax().ancestors(&n.id).contains(&id)).collect() }
 pub fn selected_in(id: &str, sel: &[String]) -> usize { sel.iter().filter(|s| tax().ancestors(s).contains(&id)).count() }
 pub fn family_name(id: &str, en: bool) -> String {

@@ -49,10 +49,6 @@ pub struct Prefs {
     pub yt_mode: String,
     pub ytdlp_path: String,
     pub ytdlp_video: bool,
-    /// браузер для cookies yt-dlp ("" — не использовать)
-    pub ytdlp_cookies: String,
-    /// вопрос про cookies браузера уже задавался (спрашиваем один раз)
-    pub ytdlp_cookies_asked: bool,
     /// показывать плашки с ошибками (для разработчика; обычный пользователь их не видит, всё пишется в diag.log)
     pub show_errors: bool,
     pub tray: bool,
@@ -67,7 +63,7 @@ impl Default for Prefs {
             shuffle: false, repeat: "off".into(), autoplay: true, crossfade: 0.0, gapless: true, normalize: false, eq_on: false, eq: vec![0.0; 10],
             quality: "normal".into(), theme: "amber".into(), lang: "ru".into(), volume: 0.8, onboarded: false, diversity: "balanced".into(), tastes: vec![], artists: vec![],
             show_video: false, lang_strict: true, rate: 1.0, notify: true, autostart: false, eq_auto: false,
-            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, ytdlp_cookies: String::new(), ytdlp_cookies_asked: false, show_errors: false, tray: true, yt_default_v2: true, upscale: 0,
+            yt_mode: "ytdlp".into(), ytdlp_path: String::new(), ytdlp_video: true, show_errors: false, tray: true, yt_default_v2: true, upscale: 0,
         }
     }
 }
@@ -198,10 +194,6 @@ pub struct SiloApp {
     pub last_src: String,
     /// какой уровень апскейла сейчас применён в движке (0 нет, 1 достройка верха)
     pub last_fx_up: u8,
-    /// до какого момента (по часам окна) звук не берём у yt-dlp: YouTube просит подтвердить, что это не бот
-    pub yt_blocked_until: f64,
-    /// короткое сообщение про бот-проверку уже показывалось в этой сессии
-    pub bot_toast_shown: bool,
     /// время последнего сообщения о другой ошибке yt-dlp
     pub yt_err_toast_at: f64,
     /// треки YouTube, которые yt-dlp не смог отдать: играют официальным плеером
@@ -227,7 +219,7 @@ impl SiloApp {
         let cache = crate::cache::Cache::new(&local.join("cache"));
         let enh = crate::enhance::Enhancer::new(local.join("ai"), rt.clone(), ctx.clone());
         let mut app = SiloApp {
-            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_blocked_until: 0.0, bot_toast_shown: false, yt_err_toast_at: -1000.0, force_embed: HashSet::new(),
+            cache, enh, prefetch_at: 0.0, trim_at: 0.0, preload_gen: 0, preloaded_enh: false, cur_enhanced: false, last_src: String::new(), last_fx_up: 0, yt_err_toast_at: -1000.0, force_embed: HashSet::new(),
             imgs: Images::new(rt.clone()),
             ctx, rt, be, eng, ev_rx, tx, rx, data_dir, pal,
             prefs_saved: serde_json::to_string(&prefs).unwrap_or_default(), prefs, loaded: true,

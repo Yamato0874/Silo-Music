@@ -60,6 +60,13 @@ fn embed_keys(db: &silo_core::db::Db) {
 }
 
 fn main() {
+    // при panic = "abort" процесс закрывается сразу: причину и место пишем в diag.log, чтобы вылет можно было разобрать
+    std::panic::set_hook(Box::new(|info| {
+        let place = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
+        let msg = info.payload().downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| info.payload().downcast_ref::<String>().cloned()).unwrap_or_default();
+        let th = std::thread::current().name().unwrap_or("?").to_string();
+        app::diag(&format!("ВЫЛЕТ в потоке {th}: {msg} ({place})"));
+    }));
     platform::set_app_id();
     let testing = std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some() || std::env::var_os("SILO_SELFTEST").is_some();
     if !testing && !platform::single_instance() { return; }
