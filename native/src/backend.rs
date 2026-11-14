@@ -351,19 +351,10 @@ pub async fn search_all(s: &App, params: SearchParams) -> R<SearchAll> {
             Err(x) => out.errors.push(format!("Jamendo: {x}")),
         }
     }
-    // текстовый поиск идёт через Deezer (без ключа и квоты); видео YouTube подбирается только при нажатии play
-    if (want("deezer") || want("youtube")) && !q.trim().is_empty() {
-        match deezer_search(&s, &q, 25).await {
-            Ok(v) => out.tracks.extend(v),
-            Err(x) => {
-                out.errors.push(x);
-                // Deezer недоступен: по Enter ищем на YouTube, как раньше (поиск в кэше на 30 дней)
-                if want("youtube") && api_on(&s, "youtube", &["youtube_api_key"]) {
-                    let key = setting(&s, "youtube_api_key")?;
-                    match yt_search(&s, &key, &q, 15, 30 * DAY).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(x) }
-                }
-            }
-        }
+    // текстовый поиск — только YouTube (в режиме yt-dlp через yt-dlp: без ключа API и квоты); Deezer в нативной версии не используется
+    if want("youtube") && !q.trim().is_empty() && api_on(&s, "youtube", &["youtube_api_key"]) {
+        let key = setting(&s, "youtube_api_key")?;
+        match yt_search(&s, &key, &q, 15, 30 * DAY).await { Ok(v) => out.tracks.extend(v), Err(x) => out.errors.push(x) }
     }
     if want("soundcloud") && !q.trim().is_empty() && api_on(&s, "soundcloud", &["soundcloud_client_id", "soundcloud_client_secret"]) {
         let (id, sec) = (setting(&s, "soundcloud_client_id")?, setting(&s, "soundcloud_client_secret")?);
@@ -404,6 +395,8 @@ pub async fn deezer_search(s: &App, q: &str, limit: u32) -> R<Vec<Track>> {
 /// Подсказки при вводе: несколько треков Deezer.
 pub async fn suggest_tracks(s: &App, query: String) -> R<Vec<Track>> {
     if query.trim().chars().count() < 2 { return Ok(vec![]); }
+    let _ = query; return Ok(vec![]);
+    #[allow(unreachable_code)]
     let mut v = deezer_search(&s, &query, 25).await?;
     drop_banned(&s, &mut v);
     v.truncate(6);
@@ -926,28 +919,20 @@ pub mod ytw {
         if exe.is_empty() { return Err("yt-dlp не найден".into()); }
         tokio::task::spawn_blocking(move || crate::ytdlp::json(&exe, &args)).await.map_err(|e| silo_core::Error::Msg(e.to_string()))?.map_err(silo_core::Error::Msg)
     }
-    fn tracks(v: &serde_json::Value) -> Vec<Track> {
-        v["entries"].as_array().cloned().unwrap_or_default().iter().filter_map(|e| {
-            let id = e["id"].as_str()?;
-            if id.len() != 11 { return None; }
-            let ch = e["channel"].as_str().or(e["uploader"].as_str()).unwrap_or("");
-            Some(crate::ytdlp::yt_track(id, e["title"].as_str().unwrap_or(""), ch, e["duration"].as_f64().unwrap_or(0.0) as u32))
-        }).collect()
-    }
     pub async fn search(key: &str, q: &str, limit: u32) -> Result<Vec<Track>> {
-        match dlp() { Some(exe) => Ok(tracks(&run(exe, vec!["--flat-playlist".into(), "-J".into(), format!("ytsearch{limit}:{q}")]).await?)), None => youtube::search(key, q, limit).await }
+        match dlp() { Some(exe) => Ok(crate::ytdlp::tracks_of(&run(exe, vec!["--flat-playlist".into(), "-J".into(), format!("ytsearch{limit}:{q}")]).await?)), None => youtube::search(key, q, limit).await }
     }
     pub async fn keep_music(key: &str, v: Vec<Track>) -> Result<Vec<Track>> {
         // без API: музыка — то, что по длине похоже на трек
         match dlp() { Some(_) => Ok(v.into_iter().filter(|t| t.duration == 0 || (60..=720).contains(&t.duration)).collect()), None => youtube::keep_music(key, v).await }
     }
     pub async fn playlist_items(key: &str, id: &str) -> Result<Vec<Track>> {
-        match dlp() { Some(exe) => Ok(tracks(&run(exe, vec!["--flat-playlist".into(), "-J".into(), format!("https://www.youtube.com/playlist?list={id}")]).await?)), None => youtube::playlist_items(key, id).await }
+        match dlp() { Some(exe) => Ok(crate::ytdlp::tracks_of(&run(exe, vec!["--flat-playlist".into(), "-J".into(), "--playlist-end".into(), "200".into(), format!("https://www.youtube.com/playlist?list={id}")]).await?)), None => youtube::playlist_items(key, id).await }
     }
     pub async fn search_playlists(key: &str, q: &str) -> Result<Vec<PlaylistRef>> {
         match dlp() {
             Some(exe) => {
-                let url = format!("https://www.youtube.com/results?search_query={}&sp=EgIQAw%253D%253D", q.replace(' ', "+"));
+                let url = format!("https://www.youtube.com/results?search_query={}&sp=EgIQAw%3D%3D", crate::ytdlp::urlenc(q));
                 let v = run(exe, vec!["--flat-playlist".into(), "-J".into(), "--playlist-end".into(), "15".into(), url]).await?;
                 Ok(v["entries"].as_array().cloned().unwrap_or_default().iter().filter_map(|e| {
                     let id = e["id"].as_str()?;

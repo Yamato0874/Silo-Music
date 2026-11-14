@@ -50,9 +50,10 @@ fn copy_keys(db: &silo_core::db::Db) {
 
 fn main() {
     platform::set_app_id();
-    let testing = std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some();
+    let testing = std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some() || std::env::var_os("SILO_SELFTEST").is_some();
     if !testing && !platform::single_instance() { return; }
-    let dir = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native");
+    // SILO_DATA_DIR — отдельная папка данных для самопроверок, чтобы тесты не трогали настоящую базу
+    let dir = std::env::var_os("SILO_DATA_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("app.silo.player.native"));
     let _ = std::fs::create_dir_all(&dir);
     platform::register_app_id(&dir);
     // отложенный перенос из основной версии (кнопка в Настройках → Данные)
@@ -85,7 +86,7 @@ fn main() {
         .with_visible(!hidden);
     if let Some(icon) = platform::window_icon() { vp = vp.with_icon(icon); }
     // самопроверка: окно за пределами экрана и без кнопки на панели задач, чтобы не мешать
-    if std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some() { vp = vp.with_position([-2600.0, 40.0]).with_taskbar(false); }
+    if std::env::var_os("SILO_DEMO").is_some() || std::env::var_os("SILO_BENCH").is_some() || std::env::var_os("SILO_SELFTEST").is_some() { vp = vp.with_position([-2600.0, 40.0]).with_taskbar(false); }
     let opts = eframe::NativeOptions { viewport: vp, ..Default::default() };
     let d2 = dir.clone();
     let _ = eframe::run_native("Silo Player", opts, Box::new(move |cc| Ok(Box::new(app::SiloApp::new(cc, handle, backend, d2)))));

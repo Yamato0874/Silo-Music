@@ -26,7 +26,35 @@ pub fn bench(app: &mut SiloApp, ctx: &egui::Context) {
     ctx.request_repaint_after(std::time::Duration::from_millis(200));
 }
 
+/// Самопроверка yt-dlp с поддельным yt-dlp.exe (SILO_SELFTEST=ytdlp, SILO_FAKE_YTDLP=<путь>): поиск → воспроизведение → перемотка. Журнал — в stderr.
+pub fn selftest(app: &mut SiloApp, ctx: &egui::Context) {
+    let Ok(mode) = std::env::var("SILO_SELFTEST") else { return };
+    let t = ctx.input(|i| i.time);
+    let st = app.bench_step;
+    let log = |app: &SiloApp, what: &str| eprintln!("[selftest t={:.1}] {what}: route={} playing={} pos={:.1} dur={:.1} results={} toasts={:?}", ctx.input(|i| i.time), app.route_name(), app.ps.playing, app.ps.pos, app.ps.dur, app.demo_result_count(), app.toasts.iter().map(|x| x.text.clone()).collect::<Vec<_>>());
+    match st {
+        0 if t > 1.0 => {
+            app.prefs.onboarded = true;
+            app.prefs.volume = 0.0; app.set_volume_live(0.0);
+            app.prefs.yt_mode = if mode == "embed" { "embed".into() } else { "ytdlp".into() };
+            app.prefs.ytdlp_path = std::env::var("SILO_FAKE_YTDLP").unwrap_or_default();
+            app.tab = Tab::Search; app.demo_query("кино группа крови");
+            app.bench_step = 1; app.selftest_at = t; log(app, "search sent");
+        }
+        1 if app.demo_result_count() > 0 => { log(app, "results"); if let Some(tr) = app.demo_first_result() { eprintln!("[selftest] first = {} / {} / {}s / {}", tr.name, tr.artist, tr.duration, tr.id); app.play(vec![tr], 0, false); } app.bench_step = 2; app.selftest_at = t; }
+        1 if t - app.selftest_at > 15.0 => { log(app, "NO RESULTS"); std::process::exit(2); }
+        2 if t - app.selftest_at > 3.0 => { log(app, "playing 3s"); app.seek(14.0); app.bench_step = 3; app.selftest_at = t; }
+        3 if t - app.selftest_at > 1.5 => { log(app, "after seek (during download)"); app.bench_step = 4; app.selftest_at = t; }
+        4 if t - app.selftest_at > 7.0 => { log(app, "after download"); app.seek(2.0); app.bench_step = 5; app.selftest_at = t; }
+        5 if t - app.selftest_at > 2.0 => { log(app, "after seek back to 2s"); app.toggle(); app.bench_step = 6; app.selftest_at = t; }
+        6 if t - app.selftest_at > 1.5 => { log(app, "paused"); std::process::exit(0); }
+        _ => {}
+    }
+    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+}
+
 pub fn frame(app: &mut SiloApp, ctx: &egui::Context) {
+    selftest(app, ctx);
     bench(app, ctx);
     let Some(mut d) = app.demo.take() else { return };
     let now = ctx.input(|i| i.time);

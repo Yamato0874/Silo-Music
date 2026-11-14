@@ -59,6 +59,18 @@ impl eframe::App for SiloApp {
             let main = ui.available_rect_before_wrap();
             if self.stage { self.stage(ui, main); } else {
                 egui::CentralPanel::no_frame().show_inside(ui, |ui| {
+                    if self.prefs.yt_mode == "ytdlp" && self.ytdlp_exe().is_none() {
+                        let mut go = false;
+                        egui::Frame::new().fill(pal.acc_soft()).stroke(Stroke::new(1.0, mix(pal.line, pal.acc, 0.5))).corner_radius(8).inner_margin(egui::Margin::symmetric(12, 8)).outer_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 0 }).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (r, _) = ui.allocate_exact_size(Vec2::splat(16.0), Sense::hover());
+                                paint_icon(ui.painter(), r, "alert", pal.acc, false);
+                                ui.add(egui::Label::new(RichText::new(self.t("ytDlpBanner")).color(pal.fg).size(12.5)).wrap());
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| { if btn_sm(ui, &pal, V::Solid, None, self.t("settings"), false).clicked() { go = true; } });
+                            });
+                        });
+                        if go { self.open_settings_tab("yt"); }
+                    }
                     if !self.online { ui.label(RichText::new(self.t("offline")).color(pal.mut_)); }
                     let id = egui::Id::new(("page", self.tab as u8, self.artist.clone()));
                     egui::ScrollArea::vertical().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {

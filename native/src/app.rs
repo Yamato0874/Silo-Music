@@ -175,6 +175,7 @@ pub struct SiloApp {
     pub demo: Option<crate::demo::Demo>,
     pub embed_pending: Option<(Track, f64)>,
     pub bench_step: u8,
+    pub selftest_at: f64,
     fresh_previews: std::collections::HashSet<String>,
 }
 
@@ -203,7 +204,7 @@ impl SiloApp {
             toasts: vec![], toast_id: 0, asks: vec![], pages: Pages::default(),
             embed: None, embed_rect: None, video: None, lyrics: None, route: Route::None, token: 0, cur_key: String::new(), preloaded: None, hold: None,
             ps: PState::default(), online: true, last_session_save: 0.0, session_dirty: false, last_prefs_check: 0.0, plat, dropping: false,
-            seek_drag: None, seek_pending: None, vol_drag: false, quit: false, ytdlp_ok: None, notified_for: String::new(), resolving: String::new(), embed_lyrics_for: String::new(), demo: crate::demo::Demo::from_env(), embed_pending: None, bench_step: 0, fresh_previews: Default::default(),
+            seek_drag: None, seek_pending: None, vol_drag: false, quit: false, ytdlp_ok: None, notified_for: String::new(), resolving: String::new(), embed_lyrics_for: String::new(), demo: crate::demo::Demo::from_env(), embed_pending: None, bench_step: 0, selftest_at: 0.0, fresh_previews: Default::default(),
         };
         app.ratings = be::all_ratings(&app.be).unwrap_or_default();
         app.blocked = be::get_setting(&app.be, "blocked_artists".into()).ok().and_then(|x| serde_json::from_str(&x).ok()).unwrap_or_default();

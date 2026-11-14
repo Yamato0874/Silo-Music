@@ -51,6 +51,8 @@ pub struct Deck {
     seek_req: Mutex<Option<f64>>,
     consumed: AtomicU64,
     base: AtomicU64,
+    /// позиция до последней перемотки: к ней возвращаемся, если источник перемотку не позволил
+    seek_from: AtomicU64,
     dur: AtomicU64,
     speed: AtomicU32,
     started: AtomicBool,
@@ -67,6 +69,7 @@ impl Deck {
             seek_req: Mutex::new(None),
             consumed: AtomicU64::new(0),
             base: AtomicU64::new(0f64.to_bits()),
+            seek_from: AtomicU64::new(0f64.to_bits()),
             dur: AtomicU64::new(dur_hint.to_bits()),
             speed: AtomicU32::new(speed.to_bits()),
             started: AtomicBool::new(false),
@@ -212,6 +215,7 @@ impl Engine {
         let d = self.sh.decks.lock().unwrap();
         if let Some(x) = &d[self.sh.active.load(Relaxed)] {
             let s = sec.max(0.0);
+            f64_store(&x.seek_from, x.pos(self.rate()));
             *x.seek_req.lock().unwrap() = Some(s);
             // позиция сразу на новом месте, пока декодер перематывает
             f64_store(&x.base, s);
@@ -503,10 +507,14 @@ impl HttpSource {
         let mut out = child.stdout.take().ok_or("yt-dlp: нет вывода")?;
         let st = Arc::new((Mutex::new(HttpBuf { data: vec![], done: false, err: None, len: None }), Condvar::new()));
         let (st2, c2) = (st.clone(), cancel.clone());
+        // трек сменили или закрыли: останавливаем yt-dlp вместе с Node, даже если он ждёт сеть и ничего не пишет
+        let finished = Arc::new(AtomicBool::new(false));
+        { let (pid, c3, f3) = (child.id(), cancel.clone(), finished.clone());
+          std::thread::spawn(move || { while !f3.load(Relaxed) { if c3.load(Relaxed) { crate::ytdlp::kill_tree(pid); break; } std::thread::sleep(Duration::from_millis(100)); } }); }
         std::thread::spawn(move || {
             let mut chunk = vec![0u8; 64 * 1024];
             loop {
-                if c2.load(Relaxed) { let _ = child.kill(); break; }
+                if c2.load(Relaxed) { break; }
                 match out.read(&mut chunk) {
                     Ok(0) => break,
                     Ok(n) => { let mut b = st2.0.lock().unwrap(); b.data.extend_from_slice(&chunk[..n]); st2.1.notify_all(); }
@@ -514,6 +522,7 @@ impl HttpSource {
                 }
             }
             let ok = child.wait().map(|s| s.success()).unwrap_or(false);
+            finished.store(true, Relaxed);
             let mut b = st2.0.lock().unwrap();
             if !ok && b.data.is_empty() { b.err = Some(crate::ytdlp::last_error()); }
             b.done = true;
@@ -659,16 +668,23 @@ fn decode(sh: &Shared, deck: &Deck, src: Src, rt: &tokio::runtime::Handle) -> Re
         let req = deck.seek_req.lock().unwrap().take();
         if let Some(t) = req {
             let time = Time::try_from_secs_f64(t).unwrap_or(Time::ZERO);
-            let r = format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(tid) });
-            decoder.reset();
-            rs = Resampler::default();
-            ws = Wsola::default();
-            deck.buf.lock().unwrap().clear();
-            let actual = match r { Ok(s) => format.tracks().iter().find(|x| x.id == tid).and_then(|x| x.time_base).and_then(|tb| tb.calc_time(s.actual_ts)).map(|t| t.as_secs_f64()).unwrap_or(t), Err(_) => t };
-            // позиция могла сдвинуться ещё раз, пока перематывали
-            if deck.seek_req.lock().unwrap().is_none() { f64_store(&deck.base, actual); deck.consumed.store(0, Relaxed); }
-            deck.eof.store(false, Relaxed);
-            deck.ended_sent.store(false, Relaxed);
+            match format.seek(SeekMode::Accurate, SeekTo::Time { time, track_id: Some(tid) }) {
+                Ok(s) => {
+                    decoder.reset();
+                    rs = Resampler::default();
+                    ws = Wsola::default();
+                    deck.buf.lock().unwrap().clear();
+                    let actual = format.tracks().iter().find(|x| x.id == tid).and_then(|x| x.time_base).and_then(|tb| tb.calc_time(s.actual_ts)).map(|t| t.as_secs_f64()).unwrap_or(t);
+                    // позиция могла сдвинуться ещё раз, пока перематывали
+                    if deck.seek_req.lock().unwrap().is_none() { f64_store(&deck.base, actual); deck.consumed.store(0, Relaxed); }
+                    deck.eof.store(false, Relaxed);
+                    deck.ended_sent.store(false, Relaxed);
+                }
+                Err(_) => {
+                    // источник пока не умеет перематывать (поток YouTube ещё докачивается): играем дальше с того же места
+                    if deck.seek_req.lock().unwrap().is_none() { f64_store(&deck.base, f64_load(&deck.seek_from)); deck.consumed.store(0, Relaxed); }
+                }
+            }
         }
         let buffered = deck.buf.lock().unwrap().len();
         if buffered > (out_rate as usize) * 2 * 3 || deck.eof.load(Relaxed) {

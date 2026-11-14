@@ -131,6 +131,8 @@ fn day_key(off_days: i64) -> String { let d = std::time::SystemTime::now().durat
 impl SiloApp {
     pub fn demo_query(&mut self, q: &str) { self.pages.q = q.into(); self.search_go(None, false); }
     pub fn demo_set_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); }
+    pub fn open_settings_tab(&mut self, t: &str) { self.pages.set_tab = t.into(); self.tab = Tab::Settings; }
+    pub fn demo_result_count(&self) -> usize { self.pages.res.as_ref().map(|r| r.len()).unwrap_or(0) }
     pub fn demo_first_result(&self) -> Option<Track> { self.pages.res.as_ref().and_then(|r| r.first().cloned()) }
     fn push(&mut self, a: Act) { self.pages.acts.push(a); }
 
@@ -325,7 +327,7 @@ impl SiloApp {
             let g = |k: &str| be::get_setting(&b, k.into()).unwrap_or_default();
             let mut m = vec![];
             if g("jamendo_client_id").trim().is_empty() { m.push("jamendo".to_string()); }
-            if g("youtube_api_key").trim().is_empty() { m.push("youtube".into()); }
+            if g("youtube_api_key").trim().is_empty() && !crate::backend::ytdlp_mode().is_some() { m.push("youtube".into()); }
             if g("soundcloud_client_id").trim().is_empty() || g("soundcloud_client_secret").trim().is_empty() { m.push("soundcloud".into()); }
             m
         }, |a, m| a.pages.missing = Some(m));
@@ -1281,6 +1283,16 @@ impl SiloApp {
         }
     }
 
+    /// Обновить yt-dlp (кнопка в настройках): YouTube часто меняется, и старая версия перестаёт работать.
+    fn update_ytdlp(&mut self) {
+        let Some(exe) = self.ytdlp_exe() else { return };
+        self.toast(self.t("ytDlpUpdating"), ToastKind::Info);
+        self.spawn(async move { tokio::task::spawn_blocking(move || crate::ytdlp::update(&exe)).await.map_err(|e| e.to_string()).and_then(|x| x) }, |a, r| {
+            a.ytdlp_ok = None;
+            match r { Ok(m) => a.toast(format!("{}: {m}", a.t("ytDlpUpdated")), ToastKind::Ok), Err(e) => a.err(e) }
+        });
+    }
+
     fn settings_yt(&mut self, ui: &mut Ui) {
         let pal = self.pal;
         let en = self.en();
@@ -1310,6 +1322,7 @@ impl SiloApp {
                     self.ytdlp_ok = Some(match crate::ytdlp::find(&self.prefs.ytdlp_path) { Some(p) => crate::ytdlp::version(&p.to_string_lossy()).map(|v| format!("{} {v} · {}", crate::i18n::tr("ytDlpFound", en), p.display())), None => Err(crate::i18n::tr("ytDlpMissing", en).into()) });
                 }
                 match &self.ytdlp_ok { Some(Ok(s)) => { ui.label(RichText::new(s).color(pal.ok())); } Some(Err(e)) => { ui.label(RichText::new(e).color(pal.danger())); } None => {} }
+                if self.ytdlp_exe().is_some() && btn(ui, &pal, V::Solid, Some("refresh"), crate::i18n::tr("ytDlpUpdate", en), false).clicked() { self.update_ytdlp(); }
                 ui.add_space(6.0);
                 sw(ui, &pal, &mut self.prefs.ytdlp_video, crate::i18n::tr("ytDlpVideo", en), "");
             });

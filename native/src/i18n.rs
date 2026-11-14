@@ -385,6 +385,10 @@ pub fn tr(k: &str, en: bool) -> &'static str {
         "prevT" => ("Предыдущий трек", "Previous track"),
         "nextT" => ("Следующий трек", "Next track"),
         "toggleT" => ("Пауза / играть", "Pause / play"),
+        "ytDlpBanner" => ("Режим «Библиотека yt-dlp» включён, но yt-dlp.exe не найден: положите его в папку программы или укажите путь в Настройках. Пока работает запасной путь.", "yt-dlp library mode is on but yt-dlp.exe was not found: put it next to the program or set the path in Settings. A fallback is used meanwhile."),
+        "ytDlpUpdate" => ("Обновить yt-dlp", "Update yt-dlp"),
+        "ytDlpUpdated" => ("yt-dlp обновлён", "yt-dlp updated"),
+        "ytDlpUpdating" => ("Обновляю yt-dlp…", "Updating yt-dlp…"),
         _ => return "?",
     };
     if en { e } else { ru }
